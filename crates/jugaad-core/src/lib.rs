@@ -1,4 +1,5 @@
 pub mod error;
+pub mod nse;
 
 pub use error::{Error, Result};
 

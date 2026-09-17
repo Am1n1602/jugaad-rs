@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 jugaad-core = { path = "../jugaad-core" }
 tokio = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
