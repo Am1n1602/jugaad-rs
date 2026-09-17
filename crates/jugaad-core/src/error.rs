@@ -1,8 +1,7 @@
 use thiserror::Error;
 
-
 /// Every error mode a client can face.
-#[derive(Debug,Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("network request failed: {0}")]
     Http(#[from] reqwest::Error),
@@ -18,7 +17,6 @@ pub enum Error {
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-
 }
 
-pub type Result<T> = std::result::Result<T,Error>;
+pub type Result<T> = std::result::Result<T, Error>;
