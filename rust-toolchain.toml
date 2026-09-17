@@ -1,0 +1,4 @@
+# Pins the toolchain so every machine and CI run uses the same compiler.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy", "rust-src", "rust-analyzer"]

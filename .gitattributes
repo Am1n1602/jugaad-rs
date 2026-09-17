@@ -1,0 +1,11 @@
+# Normalize line endings: LF in the repository, native in the working tree.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF in the working tree.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never touch binary fixtures (bhavcopy zips, captured responses).
+*.zip binary
+*.png binary

@@ -1,0 +1,9 @@
+edition = "2024"
+max_width = 100
+use_small_heuristics = "Default"
+
+# The options below are nightly-only; they are ignored on stable rustfmt.
+# Uncomment if you ever run `cargo +nightly fmt`.
+# imports_granularity = "Crate"
+# group_imports = "StdExternalCrate"
+# wrap_comments = true

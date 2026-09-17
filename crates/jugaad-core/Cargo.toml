@@ -1,0 +1,29 @@
+[package]
+name = "jugaad-core"
+description = "NSE/RBI market data client: session handling, endpoints, parsing, caching"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Enables DataFrame conversions. Add polars with
+# `cargo add polars -p jugaad-core --optional` before switching this on.
+dataframe = []
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+csv = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

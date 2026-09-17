@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug jugaad CLI",
+      "cargo": {
+        "args": ["build", "--bin=jugaad", "--package=jugaad-cli"],
+        "filter": { "name": "jugaad", "kind": "bin" }
+      },
+      "args": ["version"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug jugaad-core tests",
+      "cargo": {
+        "args": ["test", "--no-run", "--package=jugaad-core"],
+        "filter": { "kind": "lib" }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

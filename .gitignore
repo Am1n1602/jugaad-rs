@@ -1,0 +1,28 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+/.cargo/config.toml
+
+/.cache/
+/data/
+*.zip
+*.csv
+!tests/fixtures/**/*.csv
+
+# Secrets and local env
+.env
+.env.local
+
+# Editor / OS noise
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# VS Code: the shared config is committed, personal overrides are not
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
