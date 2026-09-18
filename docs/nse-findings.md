@@ -86,6 +86,54 @@ endpoint serves), but there is a hard cutoff on how far back it goes -
 years further. Python's comment about this endpoint timing out for
 pre-2020 dates could not be reproduced; today it just 404s immediately.
 
+## niftyindices uses three different body encodings, and a fourth date-field naming
+
+Extending `NseIndexHistory` to cover P/E/P/B/dividend-yield, Total Return
+Index, and the three index-discovery endpoints surfaced how inconsistent
+this one site is internally:
+
+- **History-style endpoints** (OHLC, P/E, TRI - `getHistoricaldatatabletoString`,
+  `getpepbHistoricaldataDBtoString`, `getTotalReturnIndexString`) all use
+  the quirky string-encoded `cinfo` described above.
+- **`index_subtype_list`** (`gethistoricaltypeSubindexdata`) accepts a
+  proper nested JSON body: `{"cinfo": {"indextype": ..., "indexgroup": ...}}`.
+  No string-encoding trick here.
+- **`index_name_list`** (`gethistoricaltypeindexdata`) wants a
+  form-urlencoded body with PHP-style array field names:
+  `cinfo[indextype]=...&cinfo[indexgroup]=...`, not JSON at all.
+
+Each of the three history-style endpoints also uses a different key for
+the same concept - the date field is `"HistoricalDate"` for OHLC, `"DATE"`
+for P/E, and `"Date"` for TRI. Three endpoints, three spellings.
+
+The Total Return Index endpoint (`index_tri_history_raw`) is the one place
+in this project where `name` and `indexName` genuinely need to differ: for
+"strategy" indices, `name` is a short internal code while `indexName` is
+the display name. Every other endpoint here just uses the same value for
+both.
+
+## A truly empty POST body gets rejected - by the server, not by us
+
+`index_type_list` (`gethistoricaltypedata1`) needs no real request body,
+and Python's version sends none at all. Naively doing the same with
+`reqwest` (`.body("")` or `.form(&[])`, producing a zero-byte body) gets a
+`411 Length Required` from niftyindices' edge server - but the *identical*
+request sent via `curl` (down to the same headers) succeeds. Comparing the
+two confirmed the difference: `curl -d ''` explicitly sends
+`Content-Length: 0`, while `reqwest` sends no `Content-Length` header at
+all for a genuinely empty body - it seems to treat "empty body" as "no
+body" rather than "a body of length zero." The server apparently
+requires an explicit length header even for an empty payload. Confirmed
+with a targeted test: a 1-byte body succeeds, a 0-byte body always 411s,
+regardless of headers otherwise being identical.
+
+Worked around by sending a single space (`" "`) as the body instead of
+nothing - the endpoint doesn't care about body content, only that
+`Content-Length` is present and non-absent. Worth remembering for any
+future endpoint that "doesn't need a body" - test the truly-empty case
+specifically, since it can fail in a way a byte-for-byte header comparison
+against a working `curl` command won't explain on its own.
+
 ## The stock history API needs a "warm-up" request first
 
 `GET /api/historicalOR/generateSecurityWiseHistoricalData` rejects requests

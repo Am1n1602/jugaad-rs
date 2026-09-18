@@ -185,6 +185,65 @@ async fn index_history_raw_returns_empty_for_an_unknown_index_name() {
 
 #[tokio::test]
 #[ignore = "hits live NSE"]
+async fn index_pe_history_raw_fetches_a_known_range() {
+    let history = NseIndexHistory::new().unwrap();
+    let rows = history
+        .index_pe_history_raw("NIFTY 50", date(2024, 8, 1), date(2024, 8, 5))
+        .await
+        .unwrap();
+
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|row| row.index_name == "Nifty 50"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_tri_history_raw_fetches_a_known_range() {
+    let history = NseIndexHistory::new().unwrap();
+    let rows = history
+        .index_tri_history_raw("NIFTY 50", "NIFTY 50", date(2024, 8, 1), date(2024, 8, 5))
+        .await
+        .unwrap();
+
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|row| row.index_name == "Nifty 50"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_type_list_includes_equity() {
+    let history = NseIndexHistory::new().unwrap();
+    let types = history.index_type_list().await.unwrap();
+
+    assert!(types.contains(&"Equity".to_string()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_subtype_list_includes_broad_market_indices() {
+    let history = NseIndexHistory::new().unwrap();
+    let subtypes = history
+        .index_subtype_list("Equity", "Historical Index Data")
+        .await
+        .unwrap();
+
+    assert!(subtypes.contains(&"Broad Market Indices".to_string()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_name_list_includes_nifty_50() {
+    let history = NseIndexHistory::new().unwrap();
+    let names = history
+        .index_name_list("Broad Market Indices", "Historical Index Data")
+        .await
+        .unwrap();
+
+    assert!(names.contains(&"NIFTY 50".to_string()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
 async fn derivatives_history_raw_fetches_index_futures() {
     let history = NseHistory::new().unwrap();
     let rows = history

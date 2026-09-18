@@ -23,6 +23,9 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`bulk-deals`](#bulk-deals) - download the current bulk deals report
 - [`stock`](#stock) - download one stock's daily price/volume history over a date range
 - [`index`](#index) - download one index's daily OHLC history over a date range
+- [`index-pe`](#index-pe) - download one index's daily P/E, P/B and dividend yield over a date range
+- [`index-tri`](#index-tri) - download one index's daily Total Return Index values over a date range
+- [`index-types`](#index-types-index-subtypes-index-names) - list index categories, sub-categories, and names for browsing what's available
 - [`derivatives`](#derivatives) - download F&O price/open-interest history for one contract
 
 ---
@@ -340,11 +343,156 @@ Saved index history to data/nse/index_history/NIFTY 50-2024-08-01-2024-08-31.csv
 - Same empty-result behavior as `stock` too: an unknown index name and a
   trading-day-free range both succeed but write a completely empty file
   (no header row) - niftyindices' API doesn't distinguish the two cases.
-- Only OHLC history is supported - P/E, P/B, dividend yield, and Total
-  Return Index data are not available through this command yet.
+- This command covers OHLC only - see `index-pe` and `index-tri` for P/E/
+  P/B/dividend-yield and Total Return Index data.
 - The filename is built directly from `<NAME>`, so index names containing
   characters that aren't valid in filenames on your OS aren't handled
   specially; ordinary index names like `"NIFTY 50"` are fine.
+
+---
+
+## `index-pe`
+
+Downloads an index's daily P/E, P/B and dividend yield over a date range
+and saves it as a CSV.
+
+```bash
+jugaad index-pe [OPTIONS] --from <FROM> --to <TO> <NAME>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<NAME>` | Index name, e.g. `"NIFTY 50"` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-f, --from <FROM>` | *(required)* | Start date (inclusive), `yyyy-mm-dd` |
+| `-t, --to <TO>` | *(required)* | End date (inclusive), `yyyy-mm-dd` |
+| `-o, --output <OUTPUT>` | `data/nse/index_pe_history` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad index-pe "NIFTY 50" --from 2024-08-01 --to 2024-08-31
+```
+
+```
+Saved index P/E history to data/nse/index_pe_history/NIFTY 50-pe-2024-08-01-2024-08-31.csv
+```
+
+### CSV columns
+
+`index_name, date, pe, pb, div_yield`
+
+### Notes
+
+- Same chunking and empty-result behavior as `index`.
+
+---
+
+## `index-tri`
+
+Downloads an index's daily Total Return Index values over a date range
+and saves it as a CSV.
+
+```bash
+jugaad index-tri [OPTIONS] --from <FROM> --to <TO> <NAME>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<NAME>` | Index name, e.g. `"NIFTY 50"`. For most indices this is also the display name; for "strategy" indices it's a short internal code - pass `--index-name` for those |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-f, --from <FROM>` | *(required)* | Start date (inclusive), `yyyy-mm-dd` |
+| `-t, --to <TO>` | *(required)* | End date (inclusive), `yyyy-mm-dd` |
+| `--index-name <INDEX_NAME>` | same as `<NAME>` | Display name, only needed if different from `<NAME>` |
+| `-o, --output <OUTPUT>` | `data/nse/index_tri_history` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad index-tri "NIFTY 50" --from 2024-08-01 --to 2024-08-31
+```
+
+```
+Saved index TRI history to data/nse/index_tri_history/NIFTY 50-tri-2024-08-01-2024-08-31.csv
+```
+
+### CSV columns
+
+`index_name, date, total_returns_index, ntr_value`
+
+### Notes
+
+- Same chunking and empty-result behavior as `index`.
+
+---
+
+## `index-types`, `index-subtypes`, `index-names`
+
+Three commands for browsing what index names are available, rather than
+downloading data - print results to the terminal, one per line, instead
+of writing a file. Use them together, top-down: `index-types` gives you a
+category to pass into `index-subtypes`, which gives you a sub-category to
+pass into `index-names`, which gives you an actual index name to use with
+`index`/`index-pe`/`index-tri`.
+
+```bash
+jugaad index-types
+jugaad index-subtypes --index-type <INDEX_TYPE> --index-group <INDEX_GROUP>
+jugaad index-names --index-type <INDEX_TYPE> --index-group <INDEX_GROUP>
+```
+
+### Options
+
+`index-types` takes no options. `index-subtypes` and `index-names` both
+take:
+
+| Flag | Description |
+|---|---|
+| `--index-type <INDEX_TYPE>` | A category from `index-types` (for `index-names`, a sub-category from `index-subtypes`) |
+| `--index-group <INDEX_GROUP>` | One of `"Historical Index Data"`, `"Total returns Index Values "`, `"P/E, P/B & Div.Yield values"` (note the trailing space in the second - that's niftyindices' own data, not a typo here) |
+
+### Examples
+
+```bash
+jugaad index-types
+```
+```
+Equity
+Fixed Income
+Multi Asset
+```
+
+```bash
+jugaad index-subtypes --index-type Equity --index-group "Historical Index Data"
+```
+```
+Broad Market Indices
+Sectoral Indices
+Strategy Indices
+Thematic Indices
+```
+
+```bash
+jugaad index-names --index-type "Broad Market Indices" --index-group "Historical Index Data"
+```
+```
+NIFTY 100
+NIFTY 200
+NIFTY 50
+...
+```
 
 ---
 

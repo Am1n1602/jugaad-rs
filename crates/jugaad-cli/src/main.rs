@@ -131,6 +131,62 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/index_history")]
         output: PathBuf,
     },
+    /// Download an index's daily P/E, P/B and dividend yield over a date range
+    IndexPe {
+        /// Index name, e.g. "NIFTY 50" (quote it if it contains spaces)
+        name: String,
+        /// Start date (inclusive), e.g. 2024-08-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2024-08-31
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/index_pe_history")]
+        output: PathBuf,
+    },
+    /// Download an index's daily Total Return Index values over a date range
+    IndexTri {
+        /// Index name, e.g. "NIFTY 50" (quote it if it contains spaces).
+        /// For most indices this is also the display name; for "strategy"
+        /// indices it's a short internal code - pass --index-name for those.
+        name: String,
+        /// Start date (inclusive), e.g. 2024-08-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2024-08-31
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Display name, if different from `name` (strategy indices only) -
+        /// defaults to `name`
+        #[arg(long)]
+        index_name: Option<String>,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/index_tri_history")]
+        output: PathBuf,
+    },
+    /// List the top-level index categories (e.g. "Equity", "Fixed Income")
+    IndexTypes,
+    /// List index sub-categories for a category and group
+    IndexSubtypes {
+        /// e.g. "Equity", "Fixed Income", "Multi Asset" (see index-types)
+        #[arg(long)]
+        index_type: String,
+        /// e.g. "Historical Index Data", "Total returns Index Values ",
+        /// "P/E, P/B & Div.Yield values"
+        #[arg(long)]
+        index_group: String,
+    },
+    /// List index names for a sub-category and group
+    IndexNames {
+        /// e.g. "Broad Market Indices" (see index-subtypes)
+        #[arg(long)]
+        index_type: String,
+        /// e.g. "Historical Index Data", "Total returns Index Values ",
+        /// "P/E, P/B & Div.Yield values"
+        #[arg(long)]
+        index_group: String,
+    },
     /// Download F&O (futures/options) daily price and open-interest history
     Derivatives {
         /// Symbol, e.g. NIFTY or RELIANCE
@@ -219,6 +275,61 @@ async fn main() -> anyhow::Result<()> {
             let history = NseIndexHistory::new()?;
             let path = history.index_history_csv(&name, from, to, &output).await?;
             println!("Saved index history to {}", path.display());
+        }
+        Command::IndexPe {
+            name,
+            from,
+            to,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let history = NseIndexHistory::new()?;
+            let path = history
+                .index_pe_history_csv(&name, from, to, &output)
+                .await?;
+            println!("Saved index P/E history to {}", path.display());
+        }
+        Command::IndexTri {
+            name,
+            from,
+            to,
+            index_name,
+            output,
+        } => {
+            let index_name = index_name.as_deref().unwrap_or(&name);
+            std::fs::create_dir_all(&output)?;
+            let history = NseIndexHistory::new()?;
+            let path = history
+                .index_tri_history_csv(&name, index_name, from, to, &output)
+                .await?;
+            println!("Saved index TRI history to {}", path.display());
+        }
+        Command::IndexTypes => {
+            let history = NseIndexHistory::new()?;
+            for index_type in history.index_type_list().await? {
+                println!("{index_type}");
+            }
+        }
+        Command::IndexSubtypes {
+            index_type,
+            index_group,
+        } => {
+            let history = NseIndexHistory::new()?;
+            for subtype in history
+                .index_subtype_list(&index_type, &index_group)
+                .await?
+            {
+                println!("{subtype}");
+            }
+        }
+        Command::IndexNames {
+            index_type,
+            index_group,
+        } => {
+            let history = NseIndexHistory::new()?;
+            for name in history.index_name_list(&index_type, &index_group).await? {
+                println!("{name}");
+            }
         }
         Command::Derivatives {
             symbol,
