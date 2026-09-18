@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
-use jugaad_core::nse::{NseArchives, NseHistory};
+use jugaad_core::nse::{NseArchives, NseHistory, NseIndexHistory};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -44,6 +44,20 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/stock_history")]
         output: PathBuf,
     },
+    /// Download an index's daily OHLC history over a date range
+    Index {
+        /// Index name, e.g. "NIFTY 50" (quote it if it contains spaces)
+        name: String,
+        /// Start date (inclusive), e.g. 2024-08-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2024-08-31
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/index_history")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -75,6 +89,17 @@ async fn main() -> anyhow::Result<()> {
                 .stock_history_csv(&symbol, from, to, &series, &output)
                 .await?;
             println!("Saved stock history to {}", path.display());
+        }
+        Command::Index {
+            name,
+            from,
+            to,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let history = NseIndexHistory::new()?;
+            let path = history.index_history_csv(&name, from, to, &output).await?;
+            println!("Saved index history to {}", path.display());
         }
     }
     Ok(())

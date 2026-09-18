@@ -19,6 +19,7 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`version`](#version) - print the library version
 - [`bhavcopy`](#bhavcopy) - download the whole market's daily OHLC data for one date
 - [`stock`](#stock) - download one stock's daily price/volume history over a date range
+- [`index`](#index) - download one index's daily OHLC history over a date range
 
 ---
 
@@ -151,6 +152,63 @@ records - NSE didn't track these in its earlier history.
 
 ---
 
+## `index`
+
+Downloads an index's daily OHLC history over a date range and saves it as
+a CSV, with one row per trading day. NSE indices (e.g. "NIFTY 50") are
+served from a different site (niftyindices.com) than stocks and bhavcopy.
+
+```bash
+jugaad index [OPTIONS] --from <FROM> --to <TO> <NAME>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<NAME>` | Index name, e.g. `"NIFTY 50"` (quote it - it contains a space) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-f, --from <FROM>` | *(required)* | Start date (inclusive), `yyyy-mm-dd` |
+| `-t, --to <TO>` | *(required)* | End date (inclusive), `yyyy-mm-dd` |
+| `-o, --output <OUTPUT>` | `data/nse/index_history` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+# One month of NIFTY 50
+jugaad index "NIFTY 50" --from 2024-08-01 --to 2024-08-31
+
+# Custom output directory
+jugaad index "NIFTY BANK" --from 2024-01-01 --to 2024-12-31 --output ./banknifty-2024
+```
+
+```
+Saved index history to data/nse/index_history/NIFTY 50-2024-08-01-2024-08-31.csv
+```
+
+### CSV columns
+
+`index_name, date, open, high, low, close`
+
+### Notes
+
+- Same chunking behavior as `stock`: multi-month ranges are automatically
+  split and fetched concurrently (up to 2 at a time).
+- Same empty-result behavior as `stock` too: an unknown index name and a
+  trading-day-free range both succeed but write a completely empty file
+  (no header row) - niftyindices' API doesn't distinguish the two cases.
+- Only OHLC history is supported - P/E, P/B, dividend yield, and Total
+  Return Index data are not available through this command yet.
+- The filename is built directly from `<NAME>`, so index names containing
+  characters that aren't valid in filenames on your OS aren't handled
+  specially; ordinary index names like `"NIFTY 50"` are fine.
+
+---
+
 ## Errors
 
 Errors are printed as a plain message and exit with a non-zero status.
@@ -164,5 +222,5 @@ The full list, from [`error.rs`](../crates/jugaad-core/src/error.rs):
 | `unexpected HTTP status from NSE: ...` | NSE returned something other than success/not-found/forbidden |
 | `failed to parse response: ...` | NSE's response wasn't shaped as expected (e.g. an undocumented format change) |
 | `io error: ...` | A local filesystem problem (e.g. no permission to write the output directory) |
-| `a concurrent fetch task panicked or was cancelled: ...` | Internal bug in a `stock` chunk-fetch task; please report this |
+| `a concurrent fetch task panicked or was cancelled: ...` | Internal bug in a `stock`/`index` chunk-fetch task; please report this |
 | `failed to write CSV: ...` | Something went wrong writing the output file |

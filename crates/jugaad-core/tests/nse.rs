@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used)]
 
 use chrono::NaiveDate;
-use jugaad_core::nse::{NseArchives, NseHistory};
+use jugaad_core::nse::{NseArchives, NseHistory, NseIndexHistory};
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap()
@@ -66,6 +66,43 @@ async fn stock_history_raw_returns_empty_for_weekend_only_range() {
     let history = NseHistory::new().unwrap();
     let rows = history
         .stock_history_raw("SBIN", date(2024, 8, 3), date(2024, 8, 4), "EQ")
+        .await
+        .unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_history_raw_fetches_a_known_range() {
+    let history = NseIndexHistory::new().unwrap();
+    let rows = history
+        .index_history_raw("NIFTY 50", date(2024, 8, 1), date(2024, 8, 5))
+        .await
+        .unwrap();
+
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|row| row.index_name == "Nifty 50"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_history_raw_splits_a_multi_month_range() {
+    let history = NseIndexHistory::new().unwrap();
+    let rows = history
+        .index_history_raw("NIFTY 50", date(2024, 6, 15), date(2024, 8, 15))
+        .await
+        .unwrap();
+
+    assert!(rows.len() > 30);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_history_raw_returns_empty_for_an_unknown_index_name() {
+    let history = NseIndexHistory::new().unwrap();
+    let rows = history
+        .index_history_raw("NOT A REAL INDEX", date(2024, 8, 1), date(2024, 8, 5))
         .await
         .unwrap();
 
