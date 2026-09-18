@@ -11,7 +11,8 @@ pub use daily_reports::{NseDailyReports, ReportDate, ReportSummary};
 pub use history::{DerivativeHistoryRow, Instrument, NseHistory, OptionType, StockHistoryRow};
 pub use index::{IndexHistoryRow, IndexPeRow, IndexTriRow, NseIndexHistory};
 pub use live::{
-    IndexSnapshotRow, LiveFoRow, MarketSegmentStatus, MarketTurnoverRow, NseLiveMarket,
+    BlockDealRow, IndexSnapshotRow, LiveFoRow, MarketSegmentStatus, MarketTurnoverRow,
+    NseLiveMarket,
 };
 pub use quote::{
     CurrencyOptionChainRow, CurrencyOptionLeg, DerivativeQuoteRow, IndexQuote, NseQuote,

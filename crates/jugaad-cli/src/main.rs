@@ -276,6 +276,12 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/live_fo.csv")]
         output: PathBuf,
     },
+    /// Download today's block deals (pre-open and mid-day sessions)
+    BlockDealSession {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/block_deal_session.csv")]
+        output: PathBuf,
+    },
     /// Download a stock's live quote (price, order book depth, volume)
     StockQuote {
         /// Stock symbol, e.g. SBIN or TCS
@@ -513,6 +519,14 @@ async fn main() -> anyhow::Result<()> {
             let live = NseLiveMarket::new()?;
             let path = live.live_fo_snapshot_csv(&output).await?;
             println!("Saved live F&O snapshot to {}", path.display());
+        }
+        Command::BlockDealSession { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.block_deal_session_csv(&output).await?;
+            println!("Saved block deal session to {}", path.display());
         }
         Command::StockQuote { symbol, output } => {
             std::fs::create_dir_all(&output)?;

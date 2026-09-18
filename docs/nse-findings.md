@@ -514,3 +514,31 @@ row shape, since CSV can't represent nested structures:
   rather than writing one wide row per strike with both legs side by
   side. Legs with no real contract (see above) are skipped rather than
   written as an empty row.
+
+## Block deals: two separate session lists, flattened into one tagged `Vec`
+
+`NseLiveMarket::block_deal_session_raw` (`NextApi/apiClient/GetQuoteApi`
+with `functionName=getBlockDealSession`, the same generic endpoint
+`NseQuote` uses for stock/derivative quotes) returns today's block deals
+split into `session1` (the pre-open negotiated-deal window) and
+`session2` (the mid-day window):
+
+```json
+{"data": {"session1": [...], "session2": [...]}}
+```
+
+Confirmed live: at the time this was tested, `session1` was empty and
+`session2` had two deals - so `session1`'s real per-deal shape hasn't
+actually been observed populated, only inferred to match `session2`'s
+(same field set, same generic-quote-shaped endpoint). Each deal also
+repeats the `PChange`/`pChange` duplicate-field pattern seen in
+`option-chain-v3` - only `pChange` is kept, same convention as elsewhere.
+
+Rather than expose two separate lists (which has the same nested-shape
+problem as everything else in this findings doc), `block_deal_session_raw`
+flattens both into one `Vec<BlockDealRow>` tagged by a `session` field
+(`"session1"`/`"session2"`), matching the one-row-per-record convention
+used throughout this crate. `status`/`exDate`/`purpose` were `null` in
+every deal observed - kept as `Option<String>` rather than dropped, since
+they read like fields meant for corporate-action-linked deals this
+crate hasn't seen an example of yet.

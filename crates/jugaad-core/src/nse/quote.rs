@@ -14,7 +14,10 @@ use super::live::write_csv;
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
-const NEXTAPI_URL: &str = "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi";
+// Also used by `NseLiveMarket::block_deal_session_raw` in live.rs - both
+// hit the same generic NextApi endpoint, just with different
+// `functionName` values.
+pub(super) const NEXTAPI_URL: &str = "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi";
 
 /// One price level of an order book's bid/ask depth.
 #[derive(Debug, Serialize, Deserialize)]

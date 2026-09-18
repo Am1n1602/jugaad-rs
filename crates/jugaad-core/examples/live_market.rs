@@ -1,6 +1,6 @@
 //! Exercises the live-market endpoints: market open/closed status, a
-//! snapshot of every index, market-wide turnover, and a live NIFTY
-//! futures/options snapshot.
+//! snapshot of every index, market-wide turnover, a live NIFTY
+//! futures/options snapshot, and today's block deals.
 //!
 //!     cargo run -p jugaad-core --example live_market
 
@@ -45,6 +45,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  {} last_price={} open_interest={}",
             row.contract, row.last_price, row.open_interest
+        );
+    }
+
+    let block_deals = live.block_deal_session_raw().await?;
+    println!("\nBlock deals today: {}", block_deals.len());
+    for row in &block_deals {
+        println!(
+            "  [{}] {} last_price={} volume={}",
+            row.session, row.symbol, row.last_price, row.total_traded_volume
         );
     }
 

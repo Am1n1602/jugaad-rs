@@ -23,6 +23,7 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Live index snapshot (every index, current price/change/ratios) | `NseLiveMarket::index_snapshot_raw`/`index_snapshot_csv` |
 | Live market-wide turnover by segment | `NseLiveMarket::market_turnover_raw`/`market_turnover_csv` |
 | Live NIFTY futures/options snapshot | `NseLiveMarket::live_fo_snapshot_raw`/`live_fo_snapshot_csv` |
+| Today's block deals (pre-open and mid-day sessions) | `NseLiveMarket::block_deal_session_raw`/`block_deal_session_csv` |
 | Live stock quote (price, order book depth, volume) | `NseQuote::stock_quote_raw`/`stock_quote_csv` |
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
@@ -38,7 +39,7 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 ## Pending
 
 - **The `dataframe`/`polars` Cargo feature** - declared in `Cargo.toml` but unused; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source
-- **`chart_data`/`tick_data`, `eq_derivative_turnover`, `block_deal_session`, `top_stocks`** (top gainers/losers/most-active) - confirmed reachable live, not yet designed/built. `chart_data`/`tick_data` return an empty shell even via Python's own library while the market's closed, so their real shape is still unverified.
+- **`chart_data`/`tick_data`, `eq_derivative_turnover`, `top_stocks`** (top gainers/losers/most-active) - confirmed reachable live, not yet designed/built. `chart_data`/`tick_data` return an empty shell even via Python's own library while the market's closed, so their real shape is still unverified.
 
 ## Requirements
 
@@ -60,10 +61,10 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (24 commands
+Run `jugaad --help` for the full, always-current command list (25 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
 history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
-market status/index snapshot/turnover/F&O, and live per-symbol
+market status/index snapshot/turnover/F&O/block deals, and live per-symbol
 quotes/option chains). A few representative examples:
 
 ```bash

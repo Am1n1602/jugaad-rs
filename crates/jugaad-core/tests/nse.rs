@@ -465,3 +465,18 @@ async fn currency_option_chain_raw_fetches_usdinr() {
 
     assert!(!rows.is_empty());
 }
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn block_deal_session_raw_succeeds() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.block_deal_session_raw().await.unwrap();
+
+    // Whether any block deals happened today (in either session) varies
+    // day to day - just check the call succeeds and every row that does
+    // come back is tagged with a real session.
+    assert!(
+        rows.iter()
+            .all(|r| r.session == "session1" || r.session == "session2")
+    );
+}

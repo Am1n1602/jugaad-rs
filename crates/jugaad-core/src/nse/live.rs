@@ -6,6 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
+use super::quote::NEXTAPI_URL;
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
@@ -279,6 +280,117 @@ struct LiveFoResponse {
     data: Vec<LiveFoRow>,
 }
 
+/// One block deal within a trading session (`"session1"`, the pre-open
+/// negotiated-deal window, or `"session2"`, the mid-day window). NSE's own
+/// response keeps these as two separate lists; `block_deal_session_raw`
+/// flattens them into one `Vec` tagged by `session`, matching the
+/// one-row-per-record convention used elsewhere in this crate.
+#[derive(Debug, Serialize)]
+pub struct BlockDealRow {
+    pub session: String,
+    pub identifier: String,
+    pub symbol: String,
+    pub series: String,
+    pub market_type: String,
+    pub change: f64,
+    pub percent_change: f64,
+    pub last_price: f64,
+    pub open: f64,
+    pub day_high: f64,
+    pub day_low: f64,
+    pub previous_close: f64,
+    pub average_price: f64,
+    pub total_traded_volume: u64,
+    pub total_traded_value: f64,
+    pub total_buy_quantity: u64,
+    pub total_sell_quantity: u64,
+    // Always null in every entry seen live - kept as `Option` rather than
+    // dropped, in case they populate for deals this crate hasn't observed
+    // yet (e.g. ones tied to a corporate action).
+    pub status: Option<String>,
+    pub ex_date: Option<String>,
+    pub purpose: Option<String>,
+    pub last_update_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawBlockDeal {
+    identifier: String,
+    symbol: String,
+    series: String,
+    #[serde(rename = "marketType")]
+    market_type: String,
+    change: f64,
+    // Duplicate of `pChange` (same value, confirmed live) - only one is
+    // kept, same convention as elsewhere in this crate.
+    #[serde(rename = "pChange")]
+    percent_change: f64,
+    #[serde(rename = "lastPrice")]
+    last_price: f64,
+    open: f64,
+    #[serde(rename = "dayHigh")]
+    day_high: f64,
+    #[serde(rename = "dayLow")]
+    day_low: f64,
+    #[serde(rename = "previousClose")]
+    previous_close: f64,
+    #[serde(rename = "averagePrice")]
+    average_price: f64,
+    #[serde(rename = "totalTradedVolume")]
+    total_traded_volume: u64,
+    #[serde(rename = "totalTradedValue")]
+    total_traded_value: f64,
+    #[serde(rename = "totalBuyQuantity")]
+    total_buy_quantity: u64,
+    #[serde(rename = "totalSellQuantity")]
+    total_sell_quantity: u64,
+    status: Option<String>,
+    #[serde(rename = "exDate")]
+    ex_date: Option<String>,
+    purpose: Option<String>,
+    #[serde(rename = "lastUpdateTime")]
+    last_update_time: String,
+}
+
+impl RawBlockDeal {
+    fn into_row(self, session: &str) -> BlockDealRow {
+        BlockDealRow {
+            session: session.to_string(),
+            identifier: self.identifier,
+            symbol: self.symbol,
+            series: self.series,
+            market_type: self.market_type,
+            change: self.change,
+            percent_change: self.percent_change,
+            last_price: self.last_price,
+            open: self.open,
+            day_high: self.day_high,
+            day_low: self.day_low,
+            previous_close: self.previous_close,
+            average_price: self.average_price,
+            total_traded_volume: self.total_traded_volume,
+            total_traded_value: self.total_traded_value,
+            total_buy_quantity: self.total_buy_quantity,
+            total_sell_quantity: self.total_sell_quantity,
+            status: self.status,
+            ex_date: self.ex_date,
+            purpose: self.purpose,
+            last_update_time: self.last_update_time,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RawBlockDealData {
+    session1: Vec<RawBlockDeal>,
+    session2: Vec<RawBlockDeal>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlockDealSessionResponse {
+    data: RawBlockDealData,
+}
+
 #[derive(Debug, Clone)]
 pub struct NseLiveMarket {
     client: Client,
@@ -424,6 +536,54 @@ impl NseLiveMarket {
     /// for why this takes a full file path and always overwrites.
     pub async fn live_fo_snapshot_csv(&self, path: &Path) -> Result<PathBuf> {
         let rows = self.live_fo_snapshot_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches today's block deals across both trading sessions
+    /// (pre-open and mid-day). Hits the same generic NextApi endpoint
+    /// `NseQuote` uses, with `functionName=getBlockDealSession`.
+    pub async fn block_deal_session_raw(&self) -> Result<Vec<BlockDealRow>> {
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[("functionName", "getBlockDealSession")])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: BlockDealSessionResponse = response.json().await.map_err(|e| {
+            Error::Parse(format!("could not parse block deal session response: {e}"))
+        })?;
+
+        let mut rows = Vec::new();
+        rows.extend(
+            parsed
+                .data
+                .session1
+                .into_iter()
+                .map(|raw| raw.into_row("session1")),
+        );
+        rows.extend(
+            parsed
+                .data
+                .session2
+                .into_iter()
+                .map(|raw| raw.into_row("session2")),
+        );
+        Ok(rows)
+    }
+
+    /// Fetches block deals the same way as `block_deal_session_raw`, then
+    /// writes them as a CSV file to `path` exactly - see
+    /// `market_status_csv` for why this takes a full file path and always
+    /// overwrites.
+    pub async fn block_deal_session_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.block_deal_session_raw().await?;
         write_csv(&rows, path)
     }
 }
@@ -628,6 +788,82 @@ mod tests {
         assert_eq!(
             header,
             "underlying,identifier,instrument_type,instrument,contract,expiry,option_type,strike_price,last_price,change,percent_change,open,high,low,close_price,volume,turnover,underlying_value,open_interest,trades"
+        );
+    }
+
+    // Real response captured from NSE's NextApi getBlockDealSession -
+    // session1 empty (confirmed live: this window hadn't happened yet
+    // that day), session2 with two deals.
+    const SAMPLE_BLOCK_DEAL_SESSION: &str = r#"{"data":{"session1":[],"session2":[
+        {"identifier":"ENTEROBLO","symbol":"ENTERO","series":"BL","marketType":"O","change":28.4,
+         "lastPrice":1695,"totalTradedVolume":1390000,"status":null,"open":1695,"dayHigh":1695,
+         "dayLow":1695,"previousClose":1666.6,"averagePrice":1695,"totalBuyQuantity":0,
+         "totalSellQuantity":0,"onlineIndex":0,"lastUpdateTime":"18-Sep-2026 14:06:38",
+         "totalTradedValue":2356050000,"exDate":null,"purpose":null,"PChange":1.7,"pChange":1.7},
+        {"identifier":"TMCVBLO","symbol":"TMCV","series":"BL","marketType":"O","change":1.9,
+         "lastPrice":438,"totalTradedVolume":706512,"status":null,"open":438,"dayHigh":438,
+         "dayLow":438,"previousClose":436.1,"averagePrice":438,"totalBuyQuantity":0,
+         "totalSellQuantity":0,"onlineIndex":0,"lastUpdateTime":"18-Sep-2026 14:06:53",
+         "totalTradedValue":309452256,"exDate":null,"purpose":null,"PChange":0.44,"pChange":0.44}
+    ]}}"#;
+
+    #[test]
+    fn deserializes_real_block_deal_session_shape() {
+        let parsed: BlockDealSessionResponse =
+            serde_json::from_str(SAMPLE_BLOCK_DEAL_SESSION).unwrap();
+
+        assert!(parsed.data.session1.is_empty());
+        assert_eq!(parsed.data.session2.len(), 2);
+        assert_eq!(parsed.data.session2[0].symbol, "ENTERO");
+        assert_eq!(parsed.data.session2[0].percent_change, 1.7);
+        assert_eq!(parsed.data.session2[0].status, None);
+    }
+
+    #[test]
+    fn block_deal_rows_are_tagged_with_their_session() {
+        let parsed: BlockDealSessionResponse =
+            serde_json::from_str(SAMPLE_BLOCK_DEAL_SESSION).unwrap();
+
+        let mut rows: Vec<BlockDealRow> = parsed
+            .data
+            .session1
+            .into_iter()
+            .map(|raw| raw.into_row("session1"))
+            .collect();
+        rows.extend(
+            parsed
+                .data
+                .session2
+                .into_iter()
+                .map(|raw| raw.into_row("session2")),
+        );
+
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.session == "session2"));
+        assert_eq!(rows[1].symbol, "TMCV");
+        assert_eq!(rows[1].last_price, 438.0);
+    }
+
+    #[test]
+    fn block_deal_serializing_uses_clean_field_names() {
+        let parsed: BlockDealSessionResponse =
+            serde_json::from_str(SAMPLE_BLOCK_DEAL_SESSION).unwrap();
+        let row = parsed
+            .data
+            .session2
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_row("session2");
+
+        let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
+        writer.serialize(&row).unwrap();
+        let csv_text = String::from_utf8(writer.into_inner().unwrap()).unwrap();
+
+        let header = csv_text.lines().next().unwrap();
+        assert_eq!(
+            header,
+            "session,identifier,symbol,series,market_type,change,percent_change,last_price,open,day_high,day_low,previous_close,average_price,total_traded_volume,total_traded_value,total_buy_quantity,total_sell_quantity,status,ex_date,purpose,last_update_time"
         );
     }
 }

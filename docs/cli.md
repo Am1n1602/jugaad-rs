@@ -33,6 +33,7 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`index-snapshot`](#index-snapshot) - download a live snapshot of every NSE index
 - [`market-turnover`](#market-turnover) - download market-wide turnover by segment
 - [`live-fo`](#live-fo) - download a live snapshot of NIFTY index futures/options
+- [`block-deal-session`](#block-deal-session) - download today's block deals (pre-open and mid-day sessions)
 - [`stock-quote`](#stock-quote) - download a stock's live quote, including order book depth
 - [`derivative-quote`](#derivative-quote) - download every F&O contract for a symbol
 - [`index-quote`](#index-quote) - download a single index's live value, volume and turnover
@@ -834,6 +835,52 @@ Saved live F&O snapshot to data/nse/live_fo.csv
   more contracts (or NIFTY options) appear in this same bucket during
   active trading. See
   [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+
+---
+
+## `block-deal-session`
+
+Downloads today's block deals - large negotiated trades reported outside
+the normal order book - across both trading sessions (the pre-open window
+and the mid-day window), and saves them as a CSV, one row per deal.
+
+```bash
+jugaad block-deal-session [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/block_deal_session.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad block-deal-session
+```
+
+```
+Saved block deal session to data/nse/block_deal_session.csv
+```
+
+### CSV columns
+
+`session, identifier, symbol, series, market_type, change, percent_change, last_price, open, day_high, day_low, previous_close, average_price, total_traded_volume, total_traded_value, total_buy_quantity, total_sell_quantity, status, ex_date, purpose, last_update_time`
+
+`session` is `"session1"` (pre-open negotiated-deal window) or
+`"session2"` (mid-day window) - NSE returns these as two separate lists;
+this command flattens them into one CSV tagged by this column.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Both sessions can legitimately be empty on a day with no block deals -
+  that's not an error, just an empty (or header-only) file.
+- `status`/`ex_date`/`purpose` were blank in every deal seen live - kept
+  in the output in case they populate for a deal tied to a corporate
+  action. See
+  [nse-findings.md](nse-findings.md#block-deals-two-separate-session-lists-flattened-into-one-tagged-vec).
 
 ---
 
