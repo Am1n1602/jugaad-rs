@@ -8,7 +8,8 @@
 
 use chrono::NaiveDate;
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, OptionType,
+    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket,
+    OptionType,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -336,4 +337,41 @@ async fn derivatives_history_raw_returns_empty_for_an_unknown_expiry() {
         .unwrap();
 
     assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn market_status_raw_includes_capital_market() {
+    let live = NseLiveMarket::new().unwrap();
+    let segments = live.market_status_raw().await.unwrap();
+
+    assert!(segments.iter().any(|s| s.market == "Capital Market"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_snapshot_raw_includes_nifty_50() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.index_snapshot_raw().await.unwrap();
+
+    assert!(rows.iter().any(|r| r.name == "NIFTY 50"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn market_turnover_raw_includes_equities() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.market_turnover_raw().await.unwrap();
+
+    assert!(rows.iter().any(|r| r.name.as_deref() == Some("Equities")));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn live_fo_snapshot_raw_fetches_nifty_futures() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.live_fo_snapshot_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r.underlying == "NIFTY"));
 }

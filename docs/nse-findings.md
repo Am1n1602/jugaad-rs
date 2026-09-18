@@ -312,3 +312,102 @@ actively misleading for a bad file key. Caught by actually reading the
 CLI's error output while testing the `daily-report` command, not by
 reasoning about it up front. Fixed by adding a dedicated `Error::NotFound`
 variant rather than stretching `NoData`'s meaning further.
+
+## Per-symbol live quotes are behind a bot-management wall that curl/reqwest cannot pass
+
+Investigating live-quote endpoints for parity with Python's `NSELive`
+class turned up a hard split in how hard NSE's Akamai front end protects
+different parts of its own API - confirmed by testing every endpoint live,
+repeatedly, with a wide range of headers.
+
+**Permanently out of scope, not just deferred:** `api/quote-equity`,
+`api/quote-derivative`, `api/option-chain-indices`,
+`api/option-chain-equities`, and `api/equity-stockIndices` (single-index
+live quote) all return an Akamai edge "Access Denied" page (403) or a
+disguised bot-challenge page ("Resource not found", with an injected
+sensor script), every single time, regardless of cookies, `Referer`,
+`Sec-Fetch-*` headers, or which page was visited to warm up first. Looking
+at the actual response headers explains why: NSE's `_abck` cookie (Akamai
+Bot Manager) always comes back in an **unvalidated** state
+(`~-1~-1~-1~-1~-1` at the end of the cookie value) for a plain HTTP
+client, because validating it requires executing an obfuscated JavaScript
+sensor script in a real browser and POSTing the computed payload back.
+These five endpoints check that validation state; the endpoints below
+don't. This isn't a missing header - it's a deliberate anti-bot gate that
+no combination of request tweaking can pass, so `jugaad-rs` doesn't
+implement them at all rather than pretending they're merely unfinished.
+
+**Work fine with a plain client**, confirmed live, no cookie warm-up
+needed at all (unlike `historicalOR`/`foCPV` in `history.rs`):
+
+- `api/marketStatus` - open/closed per segment
+- `api/allIndices` - live snapshot of every index
+- `api/market-turnover` - market-wide volume/value/OI by segment
+- `api/liveEquity-derivatives?index=nse50_fut` - live NIFTY F&O snapshot
+
+These four back `NseLiveMarket` in
+[live.rs](../crates/jugaad-core/src/nse/live.rs).
+
+## `marketStatus`'s `marketState` array has no consistent shape
+
+Each entry in `api/marketStatus`'s `marketState` array is a genuinely
+different shape depending on which segment it describes - not just
+optional fields, but different field *names* for the same concept:
+
+- The four named segments (Capital Market, Currency, Commodity, Debt) use
+  `"variation"` for the change value; a fifth entry describing a
+  USD-adjusted NIFTY figure uses `"change"` instead, and doesn't have a
+  `market`/`marketStatus`/`tradeDate` key at all.
+- `"last"` (and `"variation"`/`"change"`/`"percentChange"`) can be a real
+  JSON number, a numeric JSON string (e.g. `"95.9600"` for a
+  `currencyfuture` pseudo-segment), or an empty string meaning "not
+  applicable" while that segment is closed - all three, confirmed live,
+  depending on which entry.
+
+`jugaad-rs` deserializes into a fully-optional intermediate shape first
+(`RawSegment`), then keeps only the entries that actually name a `market`
+(mapping into the public `MarketSegmentStatus`) - so `market_status_raw`
+returns exactly the four real segments, not the extra blurbs NSE tacks
+onto the same array. The numeric-ish fields are kept as `Option<String>`
+rather than parsed to `f64`, since a single field can arrive in three
+different JSON shapes across entries - not worth a bespoke multi-shape
+number parser for what are ultimately just display values.
+
+## Live endpoints have only been verified while the market was closed
+
+All four `NseLiveMarket` endpoints were built and tested entirely outside
+NSE's trading hours - confirmed by `market_status_raw` itself reporting
+"Capital Market" as `Closed` on every test run made during this work (only
+`Commodity` was ever seen `Open`, and even then with empty snapshot
+values). Everything documented above holds for a closed market. The
+following haven't been confirmed against a live, actively trading session
+(NSE's trading hours are 9:15-15:30 IST, Monday-Friday) and should be
+spot-checked once during one:
+
+- Whether `marketState`'s `last`/`variation`/`percentChange` fields ever
+  carry real values (rather than empty strings) for Currency/Commodity/Debt
+  while genuinely open and trading.
+- Whether `market-turnover`'s `today` object (deliberately dropped from
+  `MarketTurnoverRow` - see above) actually populates with real numbers
+  during live trading, confirming that dropping it isn't hiding a
+  live-only data point worth keeping.
+- Whether `index_snapshot_raw`'s `last`/`change`/`percent_change` update
+  intraday as expected - structurally they should, given the field types,
+  but this was never observed actually moving.
+- Whether `live_fo_snapshot_raw` returns more than the 3 rows seen so far
+  (the near-month NIFTY futures contracts) once trading is active - it's
+  untested whether NIFTY options ever appear in this same bucket.
+
+## `liveEquity-derivatives` only accepts one `index` value
+
+`api/liveEquity-derivatives` takes an `index` query parameter that looks
+like it should accept any of several buckets NSE's own UI seems to
+reference (`banknifty_fut`, `niftyit_fut`, ...). Tested live: every value
+tried other than `nse50_fut` returns HTTP 500. `live_fo_snapshot_raw`
+therefore takes no parameter at all and hardcodes `index=nse50_fut`
+internally, rather than exposing a query string argument that's wrong
+most of the time.
+
+Also confirmed live: the response's `value`, `totalTurnover` and
+`premiumTurnOver` fields are always identical for every row - `LiveFoRow`
+keeps only one (`turnover`) rather than three redundant copies.

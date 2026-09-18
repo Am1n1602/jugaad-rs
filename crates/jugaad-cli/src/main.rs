@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, OptionType,
+    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket,
+    OptionType,
 };
 
 #[derive(Debug, Parser)]
@@ -234,6 +235,30 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/derivatives_history")]
         output: PathBuf,
     },
+    /// Show whether each market segment is currently open
+    MarketStatus {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/market_status.csv")]
+        output: PathBuf,
+    },
+    /// Download a live snapshot of every NSE index
+    IndexSnapshot {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/index_snapshot.csv")]
+        output: PathBuf,
+    },
+    /// Download market-wide turnover (volume/value/open interest) by segment
+    MarketTurnover {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/market_turnover.csv")]
+        output: PathBuf,
+    },
+    /// Download a live snapshot of NIFTY index futures/options
+    LiveFo {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/live_fo.csv")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -393,6 +418,38 @@ async fn main() -> anyhow::Result<()> {
                 .derivatives_history_csv(&symbol, from, to, expiry, instrument, &output)
                 .await?;
             println!("Saved derivatives history to {}", path.display());
+        }
+        Command::MarketStatus { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.market_status_csv(&output).await?;
+            println!("Saved market status to {}", path.display());
+        }
+        Command::IndexSnapshot { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.index_snapshot_csv(&output).await?;
+            println!("Saved index snapshot to {}", path.display());
+        }
+        Command::MarketTurnover { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.market_turnover_csv(&output).await?;
+            println!("Saved market turnover to {}", path.display());
+        }
+        Command::LiveFo { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.live_fo_snapshot_csv(&output).await?;
+            println!("Saved live F&O snapshot to {}", path.display());
         }
     }
     Ok(())

@@ -29,6 +29,10 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`index-tri`](#index-tri) - download one index's daily Total Return Index values over a date range
 - [`index-types`](#index-types-index-subtypes-index-names) - list index categories, sub-categories, and names for browsing what's available
 - [`derivatives`](#derivatives) - download F&O price/open-interest history for one contract
+- [`market-status`](#market-status) - show whether each market segment is currently open
+- [`index-snapshot`](#index-snapshot) - download a live snapshot of every NSE index
+- [`market-turnover`](#market-turnover) - download market-wide turnover by segment
+- [`live-fo`](#live-fo) - download a live snapshot of NIFTY index futures/options
 
 ---
 
@@ -41,7 +45,7 @@ jugaad version
 ```
 
 ```
-jugaad-core 0.1.0
+jugaad-core 0.2.0
 ```
 
 ---
@@ -635,6 +639,196 @@ instruments (e.g. NIFTY) but populated for stock instruments.
   the symbol succeeds but writes a completely empty file.
 - `change_in_oi` can be negative (open interest shrinking day over day) -
   don't assume it's an unsigned count.
+
+---
+
+## `market-status`
+
+Shows whether each market segment (Capital Market, Currency, Commodity,
+Debt) is currently open, and saves it as a CSV. Unlike every command
+above, this isn't historical - it's a live snapshot of right now.
+
+```bash
+jugaad market-status [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/market_status.csv` | File path to save the CSV to |
+
+Note `--output` here is a **file path**, not a directory - like
+`bulk-deals`, there's no date to derive a filename from.
+
+### Examples
+
+```bash
+jugaad market-status
+```
+
+```
+Saved market status to data/nse/market_status.csv
+```
+
+### CSV columns
+
+`market, status, trade_date, index, last, change, percent_change, status_message`
+
+### Notes
+
+- Always overwrites the target file - the data is live and changes
+  intraday, so re-running later is expected to give fresher content.
+- `last`/`change`/`percent_change` are blank while a segment is closed
+  (NSE sends an empty value for them, not a stale last-known number) and
+  are kept as raw text rather than parsed to numbers, since NSE sends them
+  in inconsistent shapes (plain number, numeric string, or empty) across
+  segments. See [nse-findings.md](nse-findings.md#marketstatuss-marketstate-array-has-no-consistent-shape).
+- NSE's response also includes a few extra entries that don't name a real
+  market segment (a USD-adjusted NIFTY figure, for instance) - those are
+  dropped, not included in the output.
+- Built and verified while the market was closed - not yet spot-checked
+  during actual trading hours. See
+  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+
+---
+
+## `index-snapshot`
+
+Downloads a live snapshot of every NSE index - current price/change, day
+range, 52-week range, valuation ratios (P/E, P/B, dividend yield) and
+market breadth (advances/declines) - and saves it as a CSV, one row per
+index.
+
+```bash
+jugaad index-snapshot [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/index_snapshot.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad index-snapshot
+```
+
+```
+Saved index snapshot to data/nse/index_snapshot.csv
+```
+
+### CSV columns
+
+`category, name, symbol, last, change, percent_change, open, high, low, prev_close, year_high, year_low, pe, pb, div_yield, advances, declines, unchanged`
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- `pe`/`pb`/`div_yield` are blank for indices with no meaningful ratio
+  (e.g. currency-adjusted indices like NIFTY50 USD).
+- `advances`/`declines`/`unchanged` are blank for indices with no
+  derivatives exposure (e.g. INDIA VIX) - NSE omits them entirely rather
+  than sending zero.
+- This is the live counterpart to `index`/`index-pe`/`index-tri` - those
+  three fetch historical data over a date range; this one is a single
+  point-in-time snapshot across every index at once.
+- Built and verified while the market was closed - not yet spot-checked
+  during actual trading hours. See
+  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+
+---
+
+## `market-turnover`
+
+Downloads market-wide turnover (volume, value, open interest) by segment
+as of the last completed trading session, and saves it as a CSV.
+
+```bash
+jugaad market-turnover [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/market_turnover.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad market-turnover
+```
+
+```
+Saved market turnover to data/nse/market_turnover.csv
+```
+
+### CSV columns
+
+`name, volume, value, open_interest`
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- One row has a blank `name` - a real NSE data quirk (a turnover figure
+  with no label), kept rather than dropped.
+- NSE's response also includes a same-day ("today") figure per segment;
+  it's not included here, since it's empty/null while the market's closed
+  and shaped differently for the "Total" row than every other segment.
+- Built and verified while the market was closed - it's untested whether
+  the dropped "today" figure actually populates during live trading. See
+  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+
+---
+
+## `live-fo`
+
+Downloads a live snapshot of NIFTY index futures/options and saves it as
+a CSV, one row per contract.
+
+```bash
+jugaad live-fo [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/live_fo.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad live-fo
+```
+
+```
+Saved live F&O snapshot to data/nse/live_fo.csv
+```
+
+### CSV columns
+
+`underlying, identifier, instrument_type, instrument, contract, expiry, option_type, strike_price, last_price, change, percent_change, open, high, low, close_price, volume, turnover, underlying_value, open_interest, trades`
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Takes no arguments - it always covers NIFTY index futures/options. NSE's
+  API technically accepts an `index` parameter for other buckets, but
+  every value tried besides the one this command uses returns an error
+  server-side, so there's nothing else to expose.
+- This, along with `market-status`/`index-snapshot`/`market-turnover`,
+  deliberately doesn't cover per-symbol live quotes or option chains
+  (e.g. a single stock's live price) - NSE protects those behind bot
+  detection that can't be scripted around. See
+  [nse-findings.md](nse-findings.md#per-symbol-live-quotes-are-behind-a-bot-management-wall-that-curlreqwest-cannot-pass).
+- Built and verified while the market was closed - it's untested whether
+  more contracts (or NIFTY options) appear in this same bucket during
+  active trading. See
+  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
 
 ---
 

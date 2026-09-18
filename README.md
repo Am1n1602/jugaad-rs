@@ -19,14 +19,19 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Index category/name discovery | `NseIndexHistory::index_type_list`/`index_subtype_list`/`index_name_list` |
 | F&O (futures/options) price + open-interest history | `NseHistory::derivatives_history_raw`/`derivatives_history_csv` |
 | Generic daily reports (39+ types, by file key) | `NseDailyReports::list_available_reports`/`download_report_raw`/`download_report_save` |
+| Live market status (open/closed per segment) | `NseLiveMarket::market_status_raw`/`market_status_csv` |
+| Live index snapshot (every index, current price/change/ratios) | `NseLiveMarket::index_snapshot_raw`/`index_snapshot_csv` |
+| Live market-wide turnover by segment | `NseLiveMarket::market_turnover_raw`/`market_turnover_csv` |
+| Live NIFTY futures/options snapshot | `NseLiveMarket::live_fo_snapshot_raw`/`live_fo_snapshot_csv` |
 
 Bhavcopy and F&O bhavcopy both automatically pick the right format for the date requested - NSE changed both formats on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
 
+Per-symbol live quotes and option chains (e.g. a single stock's live price) are **not implemented and not planned** - NSE protects those specific endpoints with bot detection (Akamai) that can't be passed with a plain HTTP client; see [`docs/nse-findings.md`](docs/nse-findings.md) for details. The four live endpoints above (market status, index snapshot, market turnover, NIFTY F&O) aren't behind that wall and work normally.
+
+The four live endpoints were built and verified while NSE's market was closed. They work correctly for a closed market, but some intraday-only behavior (e.g. whether `market-turnover`'s same-day figures populate, whether snapshot values actually move) hasn't been confirmed against a real trading session yet - see [`docs/nse-findings.md`](docs/nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed) for what specifically still needs a spot-check during NSE's trading hours (9:15-15:30 IST, Monday-Friday).
+
 ## Pending
 
-Nothing below has any code written yet:
-
-- **Live quotes** - real-time data, as opposed to everything above which is historical
 - **The `dataframe`/`polars` Cargo feature** - declared in `Cargo.toml` but unused; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source
 
 ## Requirements
@@ -49,10 +54,11 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (15 commands
+Run `jugaad --help` for the full, always-current command list (19 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
-history, bulk deals, generic daily reports, and index P/E/TRI/discovery).
-A few representative examples:
+history, bulk deals, generic daily reports, index P/E/TRI/discovery, and
+live market status/index snapshot/turnover/F&O). A few representative
+examples:
 
 ```bash
 # Whole-market bhavcopy for one day
@@ -122,4 +128,4 @@ cargo test -p jugaad-core -- --ignored
 
 ## License
 
-MIT, per `Cargo.toml`.
+MIT - see [LICENSE](LICENSE) for the full text.
