@@ -9,6 +9,17 @@ use super::USER_AGENT;
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://nsearchives.nseindia.com";
+const REPORTS_URL: &str = "https://www.nseindia.com/api/reports";
+
+// Fixed value for the old bhavcopy endpoint's `archives` query param -
+// identifies which report to fetch. Not date-dependent.
+const OLD_BHAVCOPY_ARCHIVES: &str = r#"[{"name": "CM - Bhavcopy(csv)", "type": "daily-reports", "category": "capital-market", "section": "equities"}]"#;
+
+// NSE switched bhavcopy to the "UDiff" format on this date - see
+// docs/nse-findings.md. Dates before it need the old endpoint/format.
+fn udiff_start_date() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2024, 7, 8).unwrap_or(NaiveDate::MIN)
+}
 
 #[derive(Debug)]
 pub struct NseArchives {
@@ -21,14 +32,55 @@ impl NseArchives {
         Ok(Self { client })
     }
 
-    /// Fetches the bhavcopy CSV text for a single trading day.
+    /// Fetches the bhavcopy CSV text for a single trading day, automatically
+    /// using NSE's current "UDiff" format for `dt >= 2024-07-08` and the
+    /// older format (different columns, but includes ISIN) for earlier dates.
     pub async fn bhavcopy_raw(&self, dt: NaiveDate) -> Result<String> {
+        if dt < udiff_start_date() {
+            self.bhavcopy_old_raw(dt).await
+        } else {
+            self.bhavcopy_udiff_raw(dt).await
+        }
+    }
+
+    async fn bhavcopy_udiff_raw(&self, dt: NaiveDate) -> Result<String> {
         let url = format!(
             "{BASE_URL}/content/cm/BhavCopy_NSE_CM_0_0_0_{}_F_0000.csv.zip",
             dt.format("%Y%m%d")
         );
 
         let response = self.client.get(&url).send().await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::NOT_FOUND => return Err(Error::NoData),
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let bytes = response.bytes().await?;
+        unzip_single_csv(&bytes)
+    }
+
+    // Verified live: unlike Python's version, this doesn't need a
+    // cookie-warm-up-then-retry dance today - a fresh session with no prior
+    // cookies gets a normal 200. If NSE starts requiring one again, it'll
+    // surface as `Error::Blocked` via the status match below.
+    async fn bhavcopy_old_raw(&self, dt: NaiveDate) -> Result<String> {
+        let date_str = dt.format("%d-%b-%Y").to_string();
+
+        let response = self
+            .client
+            .get(REPORTS_URL)
+            .query(&[
+                ("archives", OLD_BHAVCOPY_ARCHIVES),
+                ("date", date_str.as_str()),
+                ("type", "equities"),
+                ("mode", "single"),
+            ])
+            .header("Referer", "https://www.nseindia.com/all-reports")
+            .send()
+            .await?;
 
         match response.status() {
             StatusCode::OK => {}
@@ -101,5 +153,13 @@ mod tests {
     fn unzip_single_csv_rejects_non_zip_data() {
         let err = unzip_single_csv(b"not a zip file").unwrap_err();
         assert!(matches!(err, Error::Parse(_)));
+    }
+
+    #[test]
+    fn udiff_start_date_is_2024_07_08() {
+        assert_eq!(
+            udiff_start_date(),
+            NaiveDate::from_ymd_opt(2024, 7, 8).unwrap()
+        );
     }
 }

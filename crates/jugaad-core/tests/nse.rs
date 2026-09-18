@@ -35,6 +35,28 @@ async fn bhavcopy_raw_reports_no_data_on_a_weekend() {
 
 #[tokio::test]
 #[ignore = "hits live NSE"]
+async fn bhavcopy_raw_fetches_a_pre_udiff_trading_day() {
+    let archives = NseArchives::new().unwrap();
+    let text = archives.bhavcopy_raw(date(2020, 1, 1)).await.unwrap();
+
+    // Old format's header includes ISIN; new (UDiff) format starts "TradDt".
+    assert!(text.starts_with("SYMBOL,SERIES"));
+    assert!(text.contains("ISIN"));
+    assert!(text.lines().count() > 1000);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn bhavcopy_raw_reports_no_data_for_a_pre_udiff_weekend() {
+    // 2020-01-04 was a Saturday.
+    let archives = NseArchives::new().unwrap();
+    let err = archives.bhavcopy_raw(date(2020, 1, 4)).await.unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NoData));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
 async fn stock_history_raw_fetches_a_known_range() {
     let history = NseHistory::new().unwrap();
     let rows = history

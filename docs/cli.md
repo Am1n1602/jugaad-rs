@@ -76,9 +76,12 @@ Saved bhavcopy to data/nse/daily_bhavcopy/cm01Aug2024bhav.csv
 
 ### Notes
 
-- Only NSE's current "UDiff" bhavcopy format is supported, which covers
-  every trading day from **2024-07-08 onward**. Earlier dates aren't
-  supported yet. See [nse-findings.md](nse-findings.md#bhavcopy-format-changed-on-2024-07-08).
+- Works for any trading day, old or new. NSE switched bhavcopy to a new
+  "UDiff" format on **2024-07-08** with different columns than before
+  (the old format has an `ISIN` column the new one doesn't); this command
+  picks the right one automatically based on `<DATE>`, so you don't need
+  to do anything differently either way. See
+  [nse-findings.md](nse-findings.md#bhavcopy-format-changed-on-2024-07-08).
 - If `<DATE>` falls on a weekend, holiday, or a day NSE hasn't published
   data for yet, the command fails with a "no data" error rather than
   producing an empty or corrupt file.
