@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
-use jugaad_core::nse::NseArchives;
+use jugaad_core::nse::{NseArchives, NseHistory};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -17,6 +17,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Print the current version
     Version,
     /// Download NSE's daily bhavcopy (whole-market OHLC data) for one date
     Bhavcopy {
@@ -24,6 +25,23 @@ enum Command {
         date: NaiveDate,
         /// Directory to save the CSV into
         #[arg(short, long, default_value = "data/nse/daily_bhavcopy")]
+        output: PathBuf,
+    },
+    /// Download a stock's daily price/volume history over a date range
+    Stock {
+        /// Stock symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Start date (inclusive), e.g. 2024-08-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2024-08-31
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// NSE series - "EQ" for ordinary equity shares
+        #[arg(short, long, default_value = "EQ")]
+        series: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/stock_history")]
         output: PathBuf,
     },
 }
@@ -43,6 +61,20 @@ async fn main() -> anyhow::Result<()> {
             let archives = NseArchives::new()?;
             let path = archives.bhavcopy_save(date, &output).await?;
             println!("Saved bhavcopy to {}", path.display());
+        }
+        Command::Stock {
+            symbol,
+            from,
+            to,
+            series,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let history = NseHistory::new()?;
+            let path = history
+                .stock_history_csv(&symbol, from, to, &series, &output)
+                .await?;
+            println!("Saved stock history to {}", path.display());
         }
     }
     Ok(())

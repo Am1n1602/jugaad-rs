@@ -5,13 +5,10 @@ use chrono::NaiveDate;
 use reqwest::{Client, StatusCode};
 use zip::ZipArchive;
 
+use super::USER_AGENT;
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://nsearchives.nseindia.com";
-
-// NSE blocks requests that don't look like they came from a browser.
-const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
-    (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 #[derive(Debug)]
 pub struct NseArchives {
@@ -37,11 +34,7 @@ impl NseArchives {
             StatusCode::OK => {}
             StatusCode::NOT_FOUND => return Err(Error::NoData),
             StatusCode::FORBIDDEN => return Err(Error::Blocked),
-            status => {
-                return Err(Error::Parse(format!(
-                    "unexpected response status {status} from {url}"
-                )));
-            }
+            status => return Err(Error::UnexpectedStatus(status)),
         }
 
         let bytes = response.bytes().await?;
@@ -77,4 +70,36 @@ fn unzip_single_csv(data: &[u8]) -> Result<String> {
         .map_err(|e| Error::Parse(format!("zip entry was not valid utf-8: {e}")))?;
 
     Ok(contents)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::io::Write;
+
+    use zip::write::SimpleFileOptions;
+
+    use super::*;
+
+    fn make_test_zip(filename: &str, contents: &str) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(filename, SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(contents.as_bytes()).unwrap();
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn unzip_single_csv_extracts_the_one_entry() {
+        let zip_bytes = make_test_zip("data.csv", "a,b,c\n1,2,3\n");
+        let text = unzip_single_csv(&zip_bytes).unwrap();
+        assert_eq!(text, "a,b,c\n1,2,3\n");
+    }
+
+    #[test]
+    fn unzip_single_csv_rejects_non_zip_data() {
+        let err = unzip_single_csv(b"not a zip file").unwrap_err();
+        assert!(matches!(err, Error::Parse(_)));
+    }
 }

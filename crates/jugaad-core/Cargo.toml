@@ -16,7 +16,7 @@ default = []
 dataframe = []
 
 [dependencies]
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
