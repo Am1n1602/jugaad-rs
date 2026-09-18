@@ -313,37 +313,81 @@ CLI's error output while testing the `daily-report` command, not by
 reasoning about it up front. Fixed by adding a dedicated `Error::NotFound`
 variant rather than stretching `NoData`'s meaning further.
 
-## Per-symbol live quotes are behind a bot-management wall that curl/reqwest cannot pass
+## Correction: per-symbol live quotes are NOT behind a bot wall - the old URLs were just dead
 
-Investigating live-quote endpoints for parity with Python's `NSELive`
-class turned up a hard split in how hard NSE's Akamai front end protects
-different parts of its own API - confirmed by testing every endpoint live,
-repeatedly, with a wide range of headers.
-
-**Permanently out of scope, not just deferred:** `api/quote-equity`,
+An earlier version of this doc claimed `api/quote-equity`,
 `api/quote-derivative`, `api/option-chain-indices`,
-`api/option-chain-equities`, and `api/equity-stockIndices` (single-index
-live quote) all return an Akamai edge "Access Denied" page (403) or a
-disguised bot-challenge page ("Resource not found", with an injected
-sensor script), every single time, regardless of cookies, `Referer`,
-`Sec-Fetch-*` headers, or which page was visited to warm up first. Looking
-at the actual response headers explains why: NSE's `_abck` cookie (Akamai
-Bot Manager) always comes back in an **unvalidated** state
-(`~-1~-1~-1~-1~-1` at the end of the cookie value) for a plain HTTP
-client, because validating it requires executing an obfuscated JavaScript
-sensor script in a real browser and POSTing the computed payload back.
-These five endpoints check that validation state; the endpoints below
-don't. This isn't a missing header - it's a deliberate anti-bot gate that
-no combination of request tweaking can pass, so `jugaad-rs` doesn't
-implement them at all rather than pretending they're merely unfinished.
+`api/option-chain-equities`, and `api/equity-stockIndices` were
+"permanently out of scope" behind an unpassable Akamai bot-management
+challenge. **That conclusion was wrong**, caught by installing the actual
+current `jugaad-data` Python package and testing its live behavior, rather
+than continuing to trust this project's own from-memory guess at what
+NSE's live-quote URLs are.
 
-**Work fine with a plain client**, confirmed live, no cookie warm-up
-needed at all (unlike `historicalOR`/`foCPV` in `history.rs`):
+What's still true: those five specific URLs really are dead. Hitting them
+directly - confirmed even through Python's own authenticated `requests`
+session - returns the identical 403 "Access Denied" / 404 "Resource not
+found" this project saw. So the earlier live-testing wasn't fabricated;
+it correctly showed those exact routes don't work for anyone, Python
+included.
+
+What was wrong: concluding from that, that per-symbol live quotes and
+option chains are impossible in general. They're not - NSE moved this
+part of its API to different URLs at some point, and the currently
+installed `jugaad-data` (`pip install jugaad-data`) already follows the
+move; this project's design was based on stale endpoint names instead of
+reading that library's actual current source
+(`jugaad_data/nse/live.py`). The real, currently-working routes:
+
+- **Equity quote / trade info** (`stock_quote`/`trade_info` in Python):
+  `GET /api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol=SBIN`
+  - a completely different host path shape than the old `quote-equity`,
+  returning `{"equityResponse": [...]}`.
+- **F&O quote for a symbol** (`stock_quote_fno`): same NextApi URL, with
+  `functionName=getSymbolDerivativesData&symbol=...` instead.
+- **Single index live value** (`live_index`):
+  `GET /api/equity-stock-indices?index=NIFTY 50` - note the extra hyphen
+  versus the dead `equity-stockIndices`.
+- **Option chains** (`index_option_chain`/`equities_option_chain`):
+  `GET /api/option-chain-v3?type=Indices&symbol=NIFTY&expiry=...` - the
+  expiry is normally looked up first via
+  `GET /api/option-chain-contract-info?symbol=NIFTY`. Currency option
+  chains use a separate, still-alive `GET /api/option-chain-currency`.
+- **Chart/tick data** (`chart_data`/`tick_data`):
+  `GET /api/chart-databyindex?index=SBINEQN`.
+- **Market-wide derivative turnover** (`eq_derivative_turnover`):
+  `GET /api/equity-stock?index=allcontracts` - a confusingly generic path
+  name for what it actually returns.
+- **Block deals, top gainers/losers** (`block_deal_session`/`top_stocks`):
+  more `functionName` calls against the same NextApi URL
+  (`getBlockDealSession`, `getTopTenStock`).
+
+Confirmed live via **plain `curl`**, not just Python, that
+`NextApi/apiClient/GetQuoteApi` and `equity-stock-indices` return normal
+200s with real data given the same cookie-warm-up-then-`Referer` pattern
+used everywhere else in this project - so this isn't a Python-specific
+trick (session behavior, TLS fingerprint, etc.), just the right current
+URL. This whole surface is realistically implementable in `jugaad-rs`; it
+just hasn't been designed/built yet. Also confirmed while re-testing:
+`participant_activity`/`fao_participant_oi`, which an earlier status
+update on this project named as "not yet attempted," don't exist in the
+current `jugaad-data` at all - that was stale memory, not a real gap.
+
+## Four live endpoints implemented so far, confirmed to need no bot workaround
+
+Separately from the per-symbol surface above, these four back
+`NseLiveMarket` and were confirmed live to need nothing special - no
+cookie warm-up at all (unlike `historicalOR`/`foCPV` in `history.rs`),
+and no bot-wall issue of any kind:
 
 - `api/marketStatus` - open/closed per segment
 - `api/allIndices` - live snapshot of every index
 - `api/market-turnover` - market-wide volume/value/OI by segment
-- `api/liveEquity-derivatives?index=nse50_fut` - live NIFTY F&O snapshot
+- `api/liveEquity-derivatives?index=nse50_fut` - live NIFTY F&O snapshot -
+  note this is a distinct endpoint from anything in current `jugaad-data`
+  (its own `live_fno()` now just calls `live_index("SECURITIES IN F&O")`
+  instead), found independently while investigating this area; it works
+  and stays as-is.
 
 These four back `NseLiveMarket` in
 [live.rs](../crates/jugaad-core/src/nse/live.rs).
@@ -398,6 +442,14 @@ spot-checked once during one:
   (the near-month NIFTY futures contracts) once trading is active - it's
   untested whether NIFTY options ever appear in this same bucket.
 
+The same caveat applies to every `NseQuote` endpoint (`stock_quote_raw`,
+`derivative_quote_raw`, `index_quote_raw`, `option_chain_raw`,
+`currency_option_chain_raw`), built and tested the same way. One concrete
+gap worth calling out: `stock_quote_raw`'s order book depth was `0` at
+every one of the 5 levels in every closed-market test - structurally it
+should populate once the market's open and orders are resting on the
+book, but that's never been observed.
+
 ## `liveEquity-derivatives` only accepts one `index` value
 
 `api/liveEquity-derivatives` takes an `index` query parameter that looks
@@ -411,3 +463,54 @@ most of the time.
 Also confirmed live: the response's `value`, `totalTurnover` and
 `premiumTurnOver` fields are always identical for every row - `LiveFoRow`
 keeps only one (`turnover`) rather than three redundant copies.
+
+## Two `NseQuote` bugs caught only by running the live integration tests, not the design-time curl samples
+
+Both of these slipped past the curl-based design verification because the
+one sample response captured for each endpoint happened not to exhibit
+them - a reminder that a single captured sample confirms a shape is
+*possible*, not that it's the *only* shape NSE sends.
+
+- **`getSymbolDerivativesData`'s `openInterest`/`changeinOpenInterest`
+  are inconsistently typed.** Most contracts in a response send them as
+  plain JSON integers, but some send the identical value as a JSON float
+  (e.g. `90670.0` instead of `90670`) within the *same* response. A
+  strict `u64`/`i64` field fails to deserialize the float form outright.
+  Fixed with `deserialize_lenient_u64`/`deserialize_lenient_i64` in
+  [quote.rs](../crates/jugaad-core/src/nse/quote.rs), which parse through
+  `f64` first and round - confirmed live against NIFTY's full 905-contract
+  response, which contains both forms.
+- **`option-chain-v3` legs with no real contract still send a `CE`/`PE`
+  object, not an omitted key - but with `identifier: null`.** Confirmed
+  live on deep SBIN equity strikes (e.g. strike 1190's put side): every
+  numeric field in the placeholder leg is a valid `0`, but `identifier`
+  (and the unused `expiryDate`/`underlying` fields) are `null`. A
+  non-`Option` `identifier: String` fails to deserialize. Fixed by making
+  `OptionLeg`/`CurrencyOptionLeg.identifier` an `Option<String>`, and
+  CSV export (`option_chain_csv`/`currency_option_chain_csv`) skips a leg
+  entirely when its `identifier` is `None`, rather than writing a
+  mostly-empty row for a contract that doesn't actually exist.
+
+Both were only caught because the live `#[ignore]`d integration tests
+were actually run against real NSE data (a 905-row response for NIFTY F&O,
+a 41-strike SBIN equity chain) rather than trusting the smaller hand-picked
+samples used to design the types - a good example of why this project
+treats those tests as load-bearing rather than a formality.
+
+## CSV shapes for nested live-quote data
+
+Two of the five `NseQuote` types don't have a natural one-to-one CSV
+row shape, since CSV can't represent nested structures:
+
+- **`StockQuote`'s 5-level order book** has no nested-array equivalent in
+  CSV, so `stock_quote_csv` flattens it into 20 numbered columns
+  (`buy_price_1`/`sell_price_1` through `buy_price_5`/`sell_price_5`)
+  rather than dropping the depth data or writing 5 separate rows for one
+  quote.
+- **`OptionChainRow`/`CurrencyOptionChainRow`'s `call`/`put` legs** are
+  "melted" into separate rows tagged by an `option_type` column (`"CE"`/
+  `"PE"`), matching the one-row-per-contract convention
+  `DerivativeQuoteRow`/`LiveFoRow` already use elsewhere in this crate,
+  rather than writing one wide row per strike with both legs side by
+  side. Legs with no real contract (see above) are skipped rather than
+  written as an empty row.

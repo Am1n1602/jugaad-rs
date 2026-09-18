@@ -33,6 +33,11 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`index-snapshot`](#index-snapshot) - download a live snapshot of every NSE index
 - [`market-turnover`](#market-turnover) - download market-wide turnover by segment
 - [`live-fo`](#live-fo) - download a live snapshot of NIFTY index futures/options
+- [`stock-quote`](#stock-quote) - download a stock's live quote, including order book depth
+- [`derivative-quote`](#derivative-quote) - download every F&O contract for a symbol
+- [`index-quote`](#index-quote) - download a single index's live value, volume and turnover
+- [`option-chain`](#option-chain) - download an index or equity's option chain
+- [`currency-option-chain`](#currency-option-chain) - download a currency pair's option chain
 
 ---
 
@@ -820,15 +825,268 @@ Saved live F&O snapshot to data/nse/live_fo.csv
   API technically accepts an `index` parameter for other buckets, but
   every value tried besides the one this command uses returns an error
   server-side, so there's nothing else to expose.
-- This, along with `market-status`/`index-snapshot`/`market-turnover`,
-  deliberately doesn't cover per-symbol live quotes or option chains
-  (e.g. a single stock's live price) - NSE protects those behind bot
-  detection that can't be scripted around. See
-  [nse-findings.md](nse-findings.md#per-symbol-live-quotes-are-behind-a-bot-management-wall-that-curlreqwest-cannot-pass).
+- This is a whole-market NIFTY F&O snapshot, distinct from
+  `derivative-quote` (below), which fetches every contract for one
+  specific symbol - see
+  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead)
+  for how these two relate.
 - Built and verified while the market was closed - it's untested whether
   more contracts (or NIFTY options) appear in this same bucket during
   active trading. See
   [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+
+---
+
+## `stock-quote`
+
+Downloads a stock's live quote - price/change, day and 52-week range,
+traded volume/value/delivery, and 5-level order book depth - and saves it
+as a one-row CSV.
+
+```bash
+jugaad stock-quote [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Stock symbol, e.g. `SBIN` or `TCS` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/stock_quote` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad stock-quote SBIN
+```
+
+```
+Saved stock quote to data/nse/stock_quote/SBIN-quote.csv
+```
+
+### CSV columns
+
+`symbol, company_name, series, open, day_high, day_low, previous_close, last_price, change, percent_change, year_high, year_low, total_traded_volume, total_traded_value, total_market_cap, face_value, delivery_quantity, delivery_pct, buy_price_1, buy_quantity_1, sell_price_1, sell_quantity_1, ... (through level 5), total_buy_quantity, total_sell_quantity, last_update_time`
+
+The order book has no natural CSV shape as a nested array, so each of the
+5 depth levels gets its own numbered columns (`buy_price_1`/
+`sell_price_1` through `buy_price_5`/`sell_price_5`) rather than being
+dropped.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Fails with a "not found" error for an unknown symbol - confirmed live,
+  this endpoint 404s rather than returning an empty result.
+- NSE's real response also carries ~70 more fields (compliance/margin
+  data mostly relevant to debt securities, not equities) that aren't
+  included here. See
+  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+
+---
+
+## `derivative-quote`
+
+Downloads every F&O contract (all expiries, all strikes, futures and
+options alike) for a single underlying symbol, and saves it as a CSV, one
+row per contract.
+
+```bash
+jugaad derivative-quote [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `NIFTY` (index) or `RELIANCE` (stock) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/derivative_quote` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad derivative-quote NIFTY
+```
+
+```
+Saved derivative quote to data/nse/derivative_quote/NIFTY-derivative-quote.csv
+```
+
+### CSV columns
+
+`underlying, identifier, instrument_type, expiry, option_type, strike_price, last_price, change, percent_change, open, high, low, prev_close, close_price, volume, turnover, underlying_value, open_interest, change_in_open_interest, percent_change_in_open_interest`
+
+`strike_price` is `0` and `option_type` is `"XX"` for futures rows, same
+sentinel convention as `derivatives`/`live-fo`.
+
+### Notes
+
+- Returns an empty file (no header row) for an unknown symbol, rather than
+  an error - confirmed live.
+- Unlike `derivatives` (which needs `--expiry`/`--instrument`/date range
+  flags), this fetches everything available for the symbol at once - no
+  filtering options.
+
+---
+
+## `index-quote`
+
+Downloads a single index's live value, volume and turnover, and saves it
+as a one-row CSV.
+
+```bash
+jugaad index-quote [OPTIONS] <NAME>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<NAME>` | Index name, e.g. `"NIFTY 50"` (quote it - it contains a space) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/index_quote` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad index-quote "NIFTY 50"
+```
+
+```
+Saved index quote to data/nse/index_quote/NIFTY 50-quote.csv
+```
+
+### CSV columns
+
+`name, last, change, percent_change, open, day_high, day_low, previous_close, year_high, year_low, total_traded_volume, total_traded_value, last_update_time`
+
+### Notes
+
+- Fails with a "not found" error for an unknown index name - unlike
+  `index`/`index-pe`/`index-tri` (which write an empty file for an unknown
+  name), there's no "market closed" ambiguity for a live lookup, so an
+  empty result unambiguously means the name was wrong. See
+  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+- Different data from `index-snapshot` (adds traded volume/value, drops
+  P/E-P/B-dividend-yield and market breadth) - not a filtered view of the
+  same endpoint.
+
+---
+
+## `option-chain`
+
+Downloads the option chain for an index or an equity, and saves it as a
+CSV, one row per contract (call and put legs are separate rows,
+distinguished by `option_type`).
+
+```bash
+jugaad option-chain [OPTIONS] --kind <KIND> <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `NIFTY` (index) or `SBIN` (equity) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-k, --kind <KIND>` | *(required)* | `index` or `equity` |
+| `-e, --expiry <EXPIRY>` | nearest available | Expiry date, `yyyy-mm-dd` |
+| `-o, --output <OUTPUT>` | `data/nse/option_chain` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+# Nearest expiry
+jugaad option-chain NIFTY --kind index
+
+# A specific expiry
+jugaad option-chain SBIN --kind equity --expiry 2026-09-29
+```
+
+```
+Saved option chain to data/nse/option_chain/NIFTY-index-optionchain-2026-09-22.csv
+```
+
+The filename includes the resolved expiry (even when `--expiry` was
+omitted and the nearest one was looked up automatically), so different
+expiries for the same symbol don't overwrite each other's files.
+
+### CSV columns
+
+`strike_price, expiry, option_type, identifier, last_price, change, percent_change, open_interest, change_in_open_interest, percent_change_in_open_interest, total_traded_volume, implied_volatility, buy_price, buy_quantity, sell_price, sell_quantity, total_buy_quantity, total_sell_quantity, underlying_value`
+
+### Notes
+
+- A strike with no real contract on one side (common for deep in/out-of-
+  the-money equity strikes) is skipped entirely for that side, rather than
+  written as a mostly-empty row - confirmed live. See
+  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+- Without `--expiry`, the nearest available expiry is looked up
+  automatically via a separate request - matching the Python original's
+  default behavior.
+
+---
+
+## `currency-option-chain`
+
+Downloads a currency pair's option chain, and saves it as a CSV, one row
+per contract - same layout idea as `option-chain`, but currency legs carry
+`bid`/`ask` fields instead of `buy`/`sell`.
+
+```bash
+jugaad currency-option-chain [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Currency pair symbol, e.g. `USDINR` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/currency_option_chain` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad currency-option-chain USDINR
+```
+
+```
+Saved currency option chain to data/nse/currency_option_chain/USDINR-currency-optionchain.csv
+```
+
+### CSV columns
+
+`strike_price, expiry, option_type, identifier, last_price, change, percent_change, open_interest, change_in_open_interest, percent_change_in_open_interest, total_traded_volume, implied_volatility, bid_price, bid_quantity, ask_price, ask_quantity, total_buy_quantity, total_sell_quantity, underlying_value`
+
+### Notes
+
+- Unlike `option-chain`, always fetches every expiry at once (NSE's
+  currency option-chain endpoint doesn't take an expiry filter) - no
+  `--expiry` flag.
+- Same no-real-contract skip behavior as `option-chain`.
 
 ---
 

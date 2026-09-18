@@ -4,6 +4,7 @@ mod dates;
 pub mod history;
 pub mod index;
 pub mod live;
+pub mod quote;
 
 pub use archives::NseArchives;
 pub use daily_reports::{NseDailyReports, ReportDate, ReportSummary};
@@ -11,6 +12,10 @@ pub use history::{DerivativeHistoryRow, Instrument, NseHistory, OptionType, Stoc
 pub use index::{IndexHistoryRow, IndexPeRow, IndexTriRow, NseIndexHistory};
 pub use live::{
     IndexSnapshotRow, LiveFoRow, MarketSegmentStatus, MarketTurnoverRow, NseLiveMarket,
+};
+pub use quote::{
+    CurrencyOptionChainRow, CurrencyOptionLeg, DerivativeQuoteRow, IndexQuote, NseQuote,
+    OptionChainKind, OptionChainRow, OptionLeg, OrderBook, OrderBookLevel, StockQuote,
 };
 
 // NSE blocks requests that don't look like they came from a browser.

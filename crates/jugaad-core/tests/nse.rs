@@ -8,8 +8,8 @@
 
 use chrono::NaiveDate;
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket,
-    OptionType,
+    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
+    OptionChainKind, OptionType,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -374,4 +374,94 @@ async fn live_fo_snapshot_raw_fetches_nifty_futures() {
 
     assert!(!rows.is_empty());
     assert!(rows.iter().all(|r| r.underlying == "NIFTY"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn stock_quote_raw_fetches_sbin() {
+    let quote = NseQuote::new().unwrap();
+    let sbin = quote.stock_quote_raw("SBIN").await.unwrap();
+
+    assert_eq!(sbin.symbol, "SBIN");
+    assert!(sbin.last_price > 0.0);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn stock_quote_raw_returns_not_found_for_an_unknown_symbol() {
+    let quote = NseQuote::new().unwrap();
+    let err = quote.stock_quote_raw("NOTAREALSYMBOL").await.unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NotFound(_)));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn derivative_quote_raw_fetches_nifty_contracts() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote.derivative_quote_raw("NIFTY").await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r.underlying == "NIFTY"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn derivative_quote_raw_returns_empty_for_an_unknown_symbol() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote.derivative_quote_raw("NOTAREALSYMBOL").await.unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_quote_raw_fetches_nifty_50() {
+    let quote = NseQuote::new().unwrap();
+    let row = quote.index_quote_raw("NIFTY 50").await.unwrap();
+
+    assert_eq!(row.name, "NIFTY 50");
+    assert!(row.last > 0.0);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_quote_raw_returns_not_found_for_an_unknown_index() {
+    let quote = NseQuote::new().unwrap();
+    let err = quote.index_quote_raw("NOT A REAL INDEX").await.unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NotFound(_)));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn option_chain_raw_fetches_nifty_with_default_expiry() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote
+        .option_chain_raw("NIFTY", OptionChainKind::Index, None)
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn option_chain_raw_fetches_an_equity() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote
+        .option_chain_raw("SBIN", OptionChainKind::Equity, None)
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn currency_option_chain_raw_fetches_usdinr() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote.currency_option_chain_raw("USDINR").await.unwrap();
+
+    assert!(!rows.is_empty());
 }

@@ -428,9 +428,9 @@ impl NseLiveMarket {
     }
 }
 
-/// Shared by every `_csv` method in this module: serializes `rows` to
-/// `path`, overwriting anything already there.
-fn write_csv<T: Serialize>(rows: &[T], path: &Path) -> Result<PathBuf> {
+/// Shared by every `_csv` method in this module (and in `quote.rs`):
+/// serializes `rows` to `path`, overwriting anything already there.
+pub(super) fn write_csv<T: Serialize>(rows: &[T], path: &Path) -> Result<PathBuf> {
     let mut writer = csv::Writer::from_path(path)?;
     for row in rows {
         writer.serialize(row)?;

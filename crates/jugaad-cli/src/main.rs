@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket,
-    OptionType,
+    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
+    OptionChainKind, OptionType,
 };
 
 #[derive(Debug, Parser)]
@@ -34,6 +34,23 @@ enum InstrumentKind {
 enum OptionTypeArg {
     Call,
     Put,
+}
+
+/// Option-chain flavor as accepted on the command line, mapped onto
+/// jugaad_core's `OptionChainKind`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum OptionChainKindArg {
+    Index,
+    Equity,
+}
+
+impl From<OptionChainKindArg> for OptionChainKind {
+    fn from(kind: OptionChainKindArg) -> Self {
+        match kind {
+            OptionChainKindArg::Index => OptionChainKind::Index,
+            OptionChainKindArg::Equity => OptionChainKind::Equity,
+        }
+    }
 }
 
 /// Builds a validated `Instrument` from the loose CLI flags, requiring
@@ -259,6 +276,52 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/live_fo.csv")]
         output: PathBuf,
     },
+    /// Download a stock's live quote (price, order book depth, volume)
+    StockQuote {
+        /// Stock symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/stock_quote")]
+        output: PathBuf,
+    },
+    /// Download every F&O contract (all expiries/strikes) for a symbol
+    DerivativeQuote {
+        /// Symbol, e.g. NIFTY or RELIANCE
+        symbol: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/derivative_quote")]
+        output: PathBuf,
+    },
+    /// Download a single index's live value, volume and turnover
+    IndexQuote {
+        /// Index name, e.g. "NIFTY 50" (quote it if it contains spaces)
+        name: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/index_quote")]
+        output: PathBuf,
+    },
+    /// Download an index or equity's option chain
+    OptionChain {
+        /// Symbol, e.g. NIFTY (index) or SBIN (equity)
+        symbol: String,
+        /// Whether `symbol` is an index or an equity
+        #[arg(short, long, value_enum)]
+        kind: OptionChainKindArg,
+        /// Expiry date, e.g. 2026-09-22 - defaults to the nearest expiry
+        #[arg(short, long)]
+        expiry: Option<NaiveDate>,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/option_chain")]
+        output: PathBuf,
+    },
+    /// Download a currency pair's option chain
+    CurrencyOptionChain {
+        /// Currency pair symbol, e.g. USDINR
+        symbol: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/currency_option_chain")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -450,6 +513,43 @@ async fn main() -> anyhow::Result<()> {
             let live = NseLiveMarket::new()?;
             let path = live.live_fo_snapshot_csv(&output).await?;
             println!("Saved live F&O snapshot to {}", path.display());
+        }
+        Command::StockQuote { symbol, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.stock_quote_csv(&symbol, &output).await?;
+            println!("Saved stock quote to {}", path.display());
+        }
+        Command::DerivativeQuote { symbol, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.derivative_quote_csv(&symbol, &output).await?;
+            println!("Saved derivative quote to {}", path.display());
+        }
+        Command::IndexQuote { name, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.index_quote_csv(&name, &output).await?;
+            println!("Saved index quote to {}", path.display());
+        }
+        Command::OptionChain {
+            symbol,
+            kind,
+            expiry,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote
+                .option_chain_csv(&symbol, kind.into(), expiry, &output)
+                .await?;
+            println!("Saved option chain to {}", path.display());
+        }
+        Command::CurrencyOptionChain { symbol, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.currency_option_chain_csv(&symbol, &output).await?;
+            println!("Saved currency option chain to {}", path.display());
         }
     }
     Ok(())
