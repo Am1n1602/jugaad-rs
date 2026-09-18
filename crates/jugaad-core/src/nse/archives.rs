@@ -160,6 +160,37 @@ impl NseArchives {
         std::fs::write(&path, text)?;
         Ok(path)
     }
+
+    /// Fetches the current bulk deals report as CSV text. Unlike every other
+    /// fetcher in this module, this isn't parameterized by date - NSE only
+    /// serves the latest snapshot at this URL, not a queryable history.
+    pub async fn bulk_deals_raw(&self) -> Result<String> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/content/equities/bulk.csv"))
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::NOT_FOUND => return Err(Error::NoData),
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        Ok(response.text().await?)
+    }
+
+    /// Fetches the current bulk deals report and writes it to `path`
+    /// exactly - unlike the other `_save` methods, this takes a full file
+    /// path rather than a destination directory, since there's no date to
+    /// derive a filename from, and always overwrites rather than skipping
+    /// if present, since the data is a live snapshot that changes intraday.
+    pub async fn bulk_deals_save(&self, path: &Path) -> Result<PathBuf> {
+        let text = self.bulk_deals_raw().await?;
+        std::fs::write(path, text)?;
+        Ok(path.to_path_buf())
+    }
 }
 
 /// Sends `request`, checks for the status codes shared by every bhavcopy

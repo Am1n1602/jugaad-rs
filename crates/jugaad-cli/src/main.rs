@@ -111,6 +111,12 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/stock_history")]
         output: PathBuf,
     },
+    /// Download NSE's current bulk deals report (no date - always the latest)
+    BulkDeals {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/bulk_deals.csv")]
+        output: PathBuf,
+    },
     /// Download an index's daily OHLC history over a date range
     Index {
         /// Index name, e.g. "NIFTY 50" (quote it if it contains spaces)
@@ -194,6 +200,14 @@ async fn main() -> anyhow::Result<()> {
                 .stock_history_csv(&symbol, from, to, &series, &output)
                 .await?;
             println!("Saved stock history to {}", path.display());
+        }
+        Command::BulkDeals { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let archives = NseArchives::new()?;
+            let path = archives.bulk_deals_save(&output).await?;
+            println!("Saved bulk deals to {}", path.display());
         }
         Command::Index {
             name,

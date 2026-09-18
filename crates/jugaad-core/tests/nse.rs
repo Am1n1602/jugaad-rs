@@ -100,6 +100,15 @@ async fn full_bhavcopy_raw_reports_no_data_on_a_weekend() {
 
 #[tokio::test]
 #[ignore = "hits live NSE"]
+async fn bulk_deals_raw_fetches_the_current_report() {
+    let archives = NseArchives::new().unwrap();
+    let text = archives.bulk_deals_raw().await.unwrap();
+
+    assert!(text.starts_with("Date,Symbol"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
 async fn stock_history_raw_fetches_a_known_range() {
     let history = NseHistory::new().unwrap();
     let rows = history

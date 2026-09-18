@@ -20,6 +20,7 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`bhavcopy`](#bhavcopy) - download the whole market's daily OHLC data for one date
 - [`bhavcopy-fo`](#bhavcopy-fo) - download the whole F&O market's daily bhavcopy for one date
 - [`full-bhavcopy`](#full-bhavcopy) - download the "full" bhavcopy (every series, with delivery data) for one date
+- [`bulk-deals`](#bulk-deals) - download the current bulk deals report
 - [`stock`](#stock) - download one stock's daily price/volume history over a date range
 - [`index`](#index) - download one index's daily OHLC history over a date range
 - [`derivatives`](#derivatives) - download F&O price/open-interest history for one contract
@@ -175,6 +176,52 @@ Saved full bhavcopy to data/nse/full_bhavcopy/sec_bhavdata_full_01Aug2024.csv
   fail with a "no data" error rather than succeeding.
 - The `DELIV_QTY`/`DELIV_PER` columns use a literal `-` for series where
   delivery data doesn't apply, rather than leaving the field blank.
+
+---
+
+## `bulk-deals`
+
+Downloads NSE's current bulk deals report and saves it as a CSV. Unlike
+every other command in this manual, there's no date to give - NSE only
+serves the latest snapshot at a fixed URL, so this always fetches
+whatever's current right now.
+
+```bash
+jugaad bulk-deals [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/bulk_deals.csv` | File path to save the CSV to |
+
+Note `--output` here is a **file path**, not a directory, unlike every
+other command's `--output` flag - there's no date to derive a filename
+from, so you name the file directly.
+
+### Examples
+
+```bash
+jugaad bulk-deals
+
+jugaad bulk-deals --output ./deals-today.csv
+```
+
+```
+Saved bulk deals to data/nse/bulk_deals.csv
+```
+
+### Notes
+
+- Always overwrites the target file, unlike the bhavcopy-family commands
+  which skip re-downloading if the file already exists - the data here
+  can change intraday, so re-running later the same day is expected to
+  give you fresher content, not a cached copy.
+
+### CSV columns
+
+`Date, Symbol, Security Name, Client Name, Buy/Sell, Quantity Traded, Trade Price / Wght. Avg. Price, Remarks`
 
 ---
 

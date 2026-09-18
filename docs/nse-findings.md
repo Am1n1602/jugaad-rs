@@ -67,6 +67,19 @@ sentinel (e.g. for non-equity series), not an empty field or JSON `null`
 like elsewhere in this project - worth remembering if this ever gets
 parsed into typed rows instead of raw CSV text.
 
+## Bulk deals has no date parameter at all
+
+`bulk_deals_raw` (`https://nsearchives.nseindia.com/content/equities/bulk.csv`)
+is unlike every other endpoint in this project: there's no date to pass in.
+NSE only serves the current snapshot at this fixed URL - every row in the
+response was the same, current date when tested live. No cookies needed,
+plain CSV directly (no zip). Because there's no date, `bulk_deals_save`
+takes a full file path rather than a destination directory (there's no
+date to derive a filename from), and always overwrites rather than
+skipping if the target already exists - unlike the other `_save` methods,
+skip-if-present would silently serve stale data here, since a re-run
+later the same day is expected to return different content.
+
 There's no format migration here (one shape covers every date the
 endpoint serves), but there is a hard cutoff on how far back it goes -
 2018 returns 404, unlike the other bhavcopy variants which go back
