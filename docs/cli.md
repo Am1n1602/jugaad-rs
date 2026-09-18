@@ -18,6 +18,8 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 
 - [`version`](#version) - print the library version
 - [`bhavcopy`](#bhavcopy) - download the whole market's daily OHLC data for one date
+- [`bhavcopy-fo`](#bhavcopy-fo) - download the whole F&O market's daily bhavcopy for one date
+- [`full-bhavcopy`](#full-bhavcopy) - download the "full" bhavcopy (every series, with delivery data) for one date
 - [`stock`](#stock) - download one stock's daily price/volume history over a date range
 - [`index`](#index) - download one index's daily OHLC history over a date range
 - [`derivatives`](#derivatives) - download F&O price/open-interest history for one contract
@@ -87,6 +89,92 @@ Saved bhavcopy to data/nse/daily_bhavcopy/cm01Aug2024bhav.csv
   producing an empty or corrupt file.
 - If the file already exists at the target path, it's reused rather than
   re-downloaded.
+
+---
+
+## `bhavcopy-fo`
+
+Downloads NSE's daily F&O (futures & options market) bhavcopy - OHLC and
+open-interest data for every derivatives contract traded on a given day -
+and saves it as a CSV.
+
+```bash
+jugaad bhavcopy-fo [OPTIONS] <DATE>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<DATE>` | Trading date to fetch, in `yyyy-mm-dd` format (e.g. `2024-08-01`) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/fo_bhavcopy` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad bhavcopy-fo 2024-08-01
+```
+
+```
+Saved F&O bhavcopy to data/nse/fo_bhavcopy/fo01Aug2024bhav.csv
+```
+
+### Notes
+
+- Same auto-dispatch behavior as `bhavcopy`: NSE switched F&O bhavcopy to
+  the UDiff format on the same date, 2024-07-08, and this command picks
+  the right format automatically either way.
+- Same "no data" behavior as `bhavcopy` for weekends/holidays/unpublished
+  dates.
+
+---
+
+## `full-bhavcopy`
+
+Downloads NSE's "full" bhavcopy - like `bhavcopy`, but covering every
+series (not just ordinary equity - includes government securities,
+trade-for-trade, etc.) and adding delivery quantity/percentage columns
+`bhavcopy` doesn't have. Saved as a CSV; this one is served unzipped
+directly by NSE.
+
+```bash
+jugaad full-bhavcopy [OPTIONS] <DATE>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<DATE>` | Trading date to fetch, in `yyyy-mm-dd` format (e.g. `2024-08-01`) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/full_bhavcopy` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad full-bhavcopy 2024-08-01
+```
+
+```
+Saved full bhavcopy to data/nse/full_bhavcopy/sec_bhavdata_full_01Aug2024.csv
+```
+
+### Notes
+
+- Only one format exists for this endpoint (no old/UDiff split), but it
+  doesn't go back as far as `bhavcopy` does - dates before roughly 2020
+  fail with a "no data" error rather than succeeding.
+- The `DELIV_QTY`/`DELIV_PER` columns use a literal `-` for series where
+  delivery data doesn't apply, rather than leaving the field blank.
 
 ---
 

@@ -57,6 +57,49 @@ async fn bhavcopy_raw_reports_no_data_for_a_pre_udiff_weekend() {
 
 #[tokio::test]
 #[ignore = "hits live NSE"]
+async fn bhavcopy_fo_raw_fetches_a_udiff_era_trading_day() {
+    let archives = NseArchives::new().unwrap();
+    let text = archives.bhavcopy_fo_raw(date(2024, 8, 1)).await.unwrap();
+
+    assert!(text.starts_with("TradDt"));
+    assert!(text.lines().count() > 1000);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn bhavcopy_fo_raw_fetches_a_pre_udiff_trading_day() {
+    let archives = NseArchives::new().unwrap();
+    let text = archives.bhavcopy_fo_raw(date(2020, 1, 1)).await.unwrap();
+
+    assert!(text.starts_with("INSTRUMENT,SYMBOL"));
+    assert!(text.lines().count() > 1000);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn full_bhavcopy_raw_fetches_a_known_trading_day() {
+    let archives = NseArchives::new().unwrap();
+    let text = archives.full_bhavcopy_raw(date(2024, 8, 1)).await.unwrap();
+
+    assert!(text.starts_with("SYMBOL"));
+    assert!(text.contains("DELIV_QTY"));
+    assert!(text.lines().count() > 1000);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn full_bhavcopy_raw_reports_no_data_on_a_weekend() {
+    let archives = NseArchives::new().unwrap();
+    let err = archives
+        .full_bhavcopy_raw(date(2024, 8, 3))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NoData));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
 async fn stock_history_raw_fetches_a_known_range() {
     let history = NseHistory::new().unwrap();
     let rows = history

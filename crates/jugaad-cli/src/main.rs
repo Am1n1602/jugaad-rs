@@ -78,6 +78,22 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/daily_bhavcopy")]
         output: PathBuf,
     },
+    /// Download NSE's daily F&O (derivatives) bhavcopy for one date
+    BhavcopyFo {
+        /// Trading date to fetch, e.g. 2023-09-27
+        date: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/fo_bhavcopy")]
+        output: PathBuf,
+    },
+    /// Download NSE's "full" bhavcopy (every series, with delivery data)
+    FullBhavcopy {
+        /// Trading date to fetch, e.g. 2023-09-27
+        date: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/full_bhavcopy")]
+        output: PathBuf,
+    },
     /// Download a stock's daily price/volume history over a date range
     Stock {
         /// Stock symbol, e.g. SBIN or TCS
@@ -152,6 +168,18 @@ async fn main() -> anyhow::Result<()> {
             let archives = NseArchives::new()?;
             let path = archives.bhavcopy_save(date, &output).await?;
             println!("Saved bhavcopy to {}", path.display());
+        }
+        Command::BhavcopyFo { date, output } => {
+            std::fs::create_dir_all(&output)?;
+            let archives = NseArchives::new()?;
+            let path = archives.bhavcopy_fo_save(date, &output).await?;
+            println!("Saved F&O bhavcopy to {}", path.display());
+        }
+        Command::FullBhavcopy { date, output } => {
+            std::fs::create_dir_all(&output)?;
+            let archives = NseArchives::new()?;
+            let path = archives.full_bhavcopy_save(date, &output).await?;
+            println!("Saved full bhavcopy to {}", path.display());
         }
         Command::Stock {
             symbol,

@@ -48,28 +48,17 @@ impl NseArchives {
             "{BASE_URL}/content/cm/BhavCopy_NSE_CM_0_0_0_{}_F_0000.csv.zip",
             dt.format("%Y%m%d")
         );
-
-        let response = self.client.get(&url).send().await?;
-
-        match response.status() {
-            StatusCode::OK => {}
-            StatusCode::NOT_FOUND => return Err(Error::NoData),
-            StatusCode::FORBIDDEN => return Err(Error::Blocked),
-            status => return Err(Error::UnexpectedStatus(status)),
-        }
-
-        let bytes = response.bytes().await?;
-        unzip_single_csv(&bytes)
+        fetch_zip_csv(self.client.get(url)).await
     }
 
     // Verified live: unlike Python's version, this doesn't need a
     // cookie-warm-up-then-retry dance today - a fresh session with no prior
     // cookies gets a normal 200. If NSE starts requiring one again, it'll
-    // surface as `Error::Blocked` via the status match below.
+    // surface as `Error::Blocked` via `fetch_zip_csv`'s status handling.
     async fn bhavcopy_old_raw(&self, dt: NaiveDate) -> Result<String> {
         let date_str = dt.format("%d-%b-%Y").to_string();
 
-        let response = self
+        let request = self
             .client
             .get(REPORTS_URL)
             .query(&[
@@ -78,19 +67,8 @@ impl NseArchives {
                 ("type", "equities"),
                 ("mode", "single"),
             ])
-            .header("Referer", "https://www.nseindia.com/all-reports")
-            .send()
-            .await?;
-
-        match response.status() {
-            StatusCode::OK => {}
-            StatusCode::NOT_FOUND => return Err(Error::NoData),
-            StatusCode::FORBIDDEN => return Err(Error::Blocked),
-            status => return Err(Error::UnexpectedStatus(status)),
-        }
-
-        let bytes = response.bytes().await?;
-        unzip_single_csv(&bytes)
+            .header("Referer", "https://www.nseindia.com/all-reports");
+        fetch_zip_csv(request).await
     }
 
     pub async fn bhavcopy_save(&self, dt: NaiveDate, dest: &Path) -> Result<PathBuf> {
@@ -105,6 +83,99 @@ impl NseArchives {
         std::fs::write(&path, text)?;
         Ok(path)
     }
+
+    /// Fetches the F&O (derivatives) bhavcopy CSV text for a single trading
+    /// day, automatically picking the right format the same way
+    /// `bhavcopy_raw` does for equities (NSE switched both on the same date).
+    pub async fn bhavcopy_fo_raw(&self, dt: NaiveDate) -> Result<String> {
+        if dt < udiff_start_date() {
+            self.bhavcopy_fo_old_raw(dt).await
+        } else {
+            self.bhavcopy_fo_udiff_raw(dt).await
+        }
+    }
+
+    async fn bhavcopy_fo_udiff_raw(&self, dt: NaiveDate) -> Result<String> {
+        let url = format!(
+            "{BASE_URL}/content/fo/BhavCopy_NSE_FO_0_0_0_{}_F_0000.csv.zip",
+            dt.format("%Y%m%d")
+        );
+        fetch_zip_csv(self.client.get(url)).await
+    }
+
+    async fn bhavcopy_fo_old_raw(&self, dt: NaiveDate) -> Result<String> {
+        let year = dt.format("%Y");
+        let day = dt.format("%d");
+        let month_upper = dt.format("%b").to_string().to_uppercase();
+        let url = format!(
+            "{BASE_URL}/content/historical/DERIVATIVES/{year}/{month_upper}/fo{day}{month_upper}{year}bhav.csv.zip"
+        );
+        fetch_zip_csv(self.client.get(url)).await
+    }
+
+    pub async fn bhavcopy_fo_save(&self, dt: NaiveDate, dest: &Path) -> Result<PathBuf> {
+        let file_name = format!("fo{}bhav.csv", dt.format("%d%b%Y"));
+        let path = dest.join(file_name);
+
+        if path.is_file() {
+            return Ok(path);
+        }
+
+        let text = self.bhavcopy_fo_raw(dt).await?;
+        std::fs::write(&path, text)?;
+        Ok(path)
+    }
+
+    /// Fetches the "full" bhavcopy CSV text for a single trading day - like
+    /// `bhavcopy_raw`, but every series (not just EQ) and with delivery
+    /// quantity/percentage columns. Plain CSV, not zipped. No format
+    /// migration here - one shape covers every date this endpoint serves.
+    pub async fn full_bhavcopy_raw(&self, dt: NaiveDate) -> Result<String> {
+        let url = format!(
+            "{BASE_URL}/products/content/sec_bhavdata_full_{}.csv",
+            dt.format("%d%m%Y")
+        );
+
+        let response = self.client.get(url).send().await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::NOT_FOUND => return Err(Error::NoData),
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        Ok(response.text().await?)
+    }
+
+    pub async fn full_bhavcopy_save(&self, dt: NaiveDate, dest: &Path) -> Result<PathBuf> {
+        let file_name = format!("sec_bhavdata_full_{}.csv", dt.format("%d%b%Y"));
+        let path = dest.join(file_name);
+
+        if path.is_file() {
+            return Ok(path);
+        }
+
+        let text = self.full_bhavcopy_raw(dt).await?;
+        std::fs::write(&path, text)?;
+        Ok(path)
+    }
+}
+
+/// Sends `request`, checks for the status codes shared by every bhavcopy
+/// endpoint in this module, then unzips the single CSV file in the response.
+async fn fetch_zip_csv(request: reqwest::RequestBuilder) -> Result<String> {
+    let response = request.send().await?;
+
+    match response.status() {
+        StatusCode::OK => {}
+        StatusCode::NOT_FOUND => return Err(Error::NoData),
+        StatusCode::FORBIDDEN => return Err(Error::Blocked),
+        status => return Err(Error::UnexpectedStatus(status)),
+    }
+
+    let bytes = response.bytes().await?;
+    unzip_single_csv(&bytes)
 }
 
 fn unzip_single_csv(data: &[u8]) -> Result<String> {
