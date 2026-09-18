@@ -4,11 +4,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{Datelike, NaiveDate};
 use reqwest::{Client, StatusCode};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
 use super::USER_AGENT;
-use super::dates::break_into_month_chunks;
+use super::dates::{break_into_month_chunks, deserialize_nse_date};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
@@ -63,15 +63,6 @@ pub struct StockHistoryRow {
 #[derive(Debug, Deserialize)]
 struct StockHistoryResponse {
     data: Vec<StockHistoryRow>,
-}
-
-// Convert 16-Feb-2024 format to a naivedate format
-fn deserialize_nse_date<'de, D>(deserializer: D) -> std::result::Result<NaiveDate, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let raw = String::deserialize(deserializer)?;
-    NaiveDate::parse_from_str(&raw, "%d-%b-%Y").map_err(serde::de::Error::custom)
 }
 
 /// Whether an option is a call or a put.

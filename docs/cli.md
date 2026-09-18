@@ -21,6 +21,8 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`bhavcopy-fo`](#bhavcopy-fo) - download the whole F&O market's daily bhavcopy for one date
 - [`full-bhavcopy`](#full-bhavcopy) - download the "full" bhavcopy (every series, with delivery data) for one date
 - [`bulk-deals`](#bulk-deals) - download the current bulk deals report
+- [`list-daily-reports`](#list-daily-reports-daily-report) - list NSE's 39+ generic daily reports for a segment
+- [`daily-report`](#list-daily-reports-daily-report) - download one generic daily report by file key
 - [`stock`](#stock) - download one stock's daily price/volume history over a date range
 - [`index`](#index) - download one index's daily OHLC history over a date range
 - [`index-pe`](#index-pe) - download one index's daily P/E, P/B and dividend yield over a date range
@@ -225,6 +227,73 @@ Saved bulk deals to data/nse/bulk_deals.csv
 ### CSV columns
 
 `Date, Symbol, Security Name, Client Name, Buy/Sell, Quantity Traded, Trade Price / Wght. Avg. Price, Remarks`
+
+---
+
+## `list-daily-reports`, `daily-report`
+
+NSE publishes 39+ different daily report types (bulk deals, volatility,
+block deals, short selling, circuit breaker updates, VaR margin files,
+and many more) through one generic API, identified by a `fileKey` rather
+than each needing its own URL. **Only today's and yesterday's files are
+ever available this way** - there's no historical access through this
+API, unlike `bhavcopy`/`stock`/etc.
+
+Use them together: `list-daily-reports` tells you what file keys exist
+for a segment, `daily-report` downloads one of them.
+
+```bash
+jugaad list-daily-reports [OPTIONS]
+jugaad daily-report [OPTIONS] <FILE_KEY>
+```
+
+### Options
+
+| Flag | Default | Applies to | Description |
+|---|---|---|---|
+| `-s, --segment <SEGMENT>` | `CM` | both | Market segment, e.g. `CM` (capital market) or `FO` (derivatives) |
+| `-o, --output <OUTPUT>` | `data/nse/daily_reports` | `daily-report` only | Directory to save the file into |
+
+### Arguments
+
+| Argument | Applies to | Description |
+|---|---|---|
+| `<FILE_KEY>` | `daily-report` only | A file key from `list-daily-reports`, e.g. `CM-BULK-DEAL` |
+
+### Examples
+
+```bash
+jugaad list-daily-reports
+```
+```
+CM-VAR-BEGIN-DAY (VaR Begin Day File)
+  2024-08-01  1.05 MB  C_VAR1_01082024_1.DAT
+  2024-07-31  1.05 MB  C_VAR1_31072024_1.DAT
+CM-BULK-DEAL (Bulk Deals (csv))
+  2024-08-01  0.00 KB  bulk.csv
+...
+```
+
+```bash
+jugaad daily-report CM-BULK-DEAL
+```
+```
+Saved CM-BULK-DEAL to data/nse/daily_reports/bulk.csv
+```
+
+### Notes
+
+- `daily-report` saves under **NSE's own filename** for the report, not
+  one this tool invents - unlike every other command here, there's no
+  date/range to build a filename from, and the correct file extension
+  depends entirely on which report you asked for.
+- Report formats vary by file key: CSV, zip, and proprietary `.DAT` files
+  have all been seen. `daily-report` writes whatever bytes NSE returns
+  as-is, with no assumption about content type.
+- If `<FILE_KEY>` doesn't exist for the given `--segment`, the command
+  fails with a "not found" error (not the same "no data" error other
+  commands use for holidays/weekends - this one really means the key was
+  wrong, not that a date has no data).
 
 ---
 
@@ -579,6 +648,7 @@ The full list, from [`error.rs`](../crates/jugaad-core/src/error.rs):
 | `network request failed: ...` | Couldn't reach NSE at all (DNS, timeout, connection reset, ...) |
 | `NSE refused the request, reason can be bot protection or an invalid session` | NSE's bot protection blocked the request |
 | `Data not published due to holiday,weekend or not released yet` | `bhavcopy` was asked for a non-trading day |
+| `not found: ...` | `daily-report` was asked for a `<FILE_KEY>` that doesn't exist for that segment |
 | `unexpected HTTP status from NSE: ...` | NSE returned something other than success/not-found/forbidden |
 | `failed to parse response: ...` | NSE's response wasn't shaped as expected (e.g. an undocumented format change) |
 | `io error: ...` | A local filesystem problem (e.g. no permission to write the output directory) |

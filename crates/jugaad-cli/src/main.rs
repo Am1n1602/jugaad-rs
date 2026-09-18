@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
-use jugaad_core::nse::{Instrument, NseArchives, NseHistory, NseIndexHistory, OptionType};
+use jugaad_core::nse::{
+    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, OptionType,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -115,6 +117,25 @@ enum Command {
     BulkDeals {
         /// File path to save the CSV to
         #[arg(short, long, default_value = "data/nse/bulk_deals.csv")]
+        output: PathBuf,
+    },
+    /// List NSE's available daily reports for a segment (e.g. bulk deals,
+    /// volatility, block deals, and 35+ others) - only today's and
+    /// yesterday's files are ever available through this API
+    ListDailyReports {
+        /// Market segment, e.g. "CM" (capital market) or "FO" (derivatives)
+        #[arg(short, long, default_value = "CM")]
+        segment: String,
+    },
+    /// Download one of NSE's daily reports by file key (see list-daily-reports)
+    DailyReport {
+        /// File key, e.g. "CM-BULK-DEAL" (see list-daily-reports for options)
+        file_key: String,
+        /// Market segment, e.g. "CM" (capital market) or "FO" (derivatives)
+        #[arg(short, long, default_value = "CM")]
+        segment: String,
+        /// Directory to save the file into
+        #[arg(short, long, default_value = "data/nse/daily_reports")]
         output: PathBuf,
     },
     /// Download an index's daily OHLC history over a date range
@@ -264,6 +285,30 @@ async fn main() -> anyhow::Result<()> {
             let archives = NseArchives::new()?;
             let path = archives.bulk_deals_save(&output).await?;
             println!("Saved bulk deals to {}", path.display());
+        }
+        Command::ListDailyReports { segment } => {
+            let reports = NseDailyReports::new()?;
+            for summary in reports.list_available_reports(&segment).await? {
+                println!("{} ({})", summary.file_key, summary.display_name);
+                for date in &summary.dates {
+                    println!(
+                        "  {}  {}  {}",
+                        date.trading_date, date.file_size, date.file_name
+                    );
+                }
+            }
+        }
+        Command::DailyReport {
+            file_key,
+            segment,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let reports = NseDailyReports::new()?;
+            let path = reports
+                .download_report_save(&file_key, &segment, &output)
+                .await?;
+            println!("Saved {file_key} to {}", path.display());
         }
         Command::Index {
             name,

@@ -1,9 +1,11 @@
-//! Date-range chunking shared by NSE endpoints that aren't reliable over
-//! long date ranges in a single request (currently: stock and index
-//! history). Extracted here once a second, identical consumer showed up -
+//! Date handling shared across NSE endpoints: chunking long ranges that
+//! aren't reliable in a single request (stock and index history), and
+//! parsing the common `"17-Sep-2026"`-style date format several endpoints
+//! use. Each was moved here once a second, identical consumer showed up -
 //! not written speculatively ahead of that.
 
 use chrono::{Datelike, Months, NaiveDate};
+use serde::{Deserialize, Deserializer};
 
 /// Finds the last day of the month `date` falls in.
 fn end_of_month(date: NaiveDate) -> Option<NaiveDate> {
@@ -36,6 +38,18 @@ pub(crate) fn break_into_month_chunks(
         };
     }
     chunks
+}
+
+/// Parses dates shaped like `"17-Sep-2026"`, used by stock/derivatives
+/// history and the daily-reports metadata API.
+pub(crate) fn deserialize_nse_date<'de, D>(
+    deserializer: D,
+) -> std::result::Result<NaiveDate, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    NaiveDate::parse_from_str(&raw, "%d-%b-%Y").map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]

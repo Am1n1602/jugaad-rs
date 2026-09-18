@@ -12,6 +12,9 @@ pub enum Error {
     #[error("Data not published due to holiday,weekend or not released yet")]
     NoData,
 
+    #[error("not found: {0}")]
+    NotFound(String),
+
     #[error("unexpected HTTP status from NSE: {0}")]
     UnexpectedStatus(reqwest::StatusCode),
 

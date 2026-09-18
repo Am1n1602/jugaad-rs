@@ -8,25 +8,25 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 
 | Data | Function |
 |---|---|
-| Daily bhavcopy (whole-market OHLC) | `NseArchives::bhavcopy_raw`/`bhavcopy_save` |
-| F&O daily bhavcopy | `NseArchives::bhavcopy_fo_raw`/`bhavcopy_fo_save` |
+| Daily bhavcopy (whole-market OHLC), old and new format | `NseArchives::bhavcopy_raw`/`bhavcopy_save` |
+| F&O daily bhavcopy, old and new format | `NseArchives::bhavcopy_fo_raw`/`bhavcopy_fo_save` |
 | "Full" bhavcopy (every series + delivery data) | `NseArchives::full_bhavcopy_raw`/`full_bhavcopy_save` |
+| Bulk deals (current snapshot, no date) | `NseArchives::bulk_deals_raw`/`bulk_deals_save` |
 | Per-stock daily OHLCV history | `NseHistory::stock_history_raw`/`stock_history_csv` |
 | Per-index daily OHLC history | `NseIndexHistory::index_history_raw`/`index_history_csv` |
+| Per-index P/E, P/B, dividend yield | `NseIndexHistory::index_pe_history_raw`/`index_pe_history_csv` |
+| Per-index Total Return Index | `NseIndexHistory::index_tri_history_raw`/`index_tri_history_csv` |
+| Index category/name discovery | `NseIndexHistory::index_type_list`/`index_subtype_list`/`index_name_list` |
 | F&O (futures/options) price + open-interest history | `NseHistory::derivatives_history_raw`/`derivatives_history_csv` |
+| Generic daily reports (39+ types, by file key) | `NseDailyReports::list_available_reports`/`download_report_raw`/`download_report_save` |
 
-Bhavcopy automatically picks the right format for the date requested - NSE changed its bhavcopy format on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
+Bhavcopy and F&O bhavcopy both automatically pick the right format for the date requested - NSE changed both formats on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
 
 ## Pending
 
 Nothing below has any code written yet:
 
-- **Bulk deals** - NSE's daily bulk-deal report
-- **NSE's generic daily-reports downloader** - the Python original's `NSEDailyReports` subsystem for browsing/downloading any of NSE's 39+ report types, not just bhavcopy
-- **Index P/E, P/B and dividend-yield data**, **Total Return Index** values, and the **index-name discovery endpoints** (`index_type_list`/`index_subtype_list`/`index_name_list`) - all on niftyindices.com, extending the client `NseIndexHistory` already provides
 - **Live quotes** - real-time data, as opposed to everything above which is historical
-- **RBI current rates** - a completely separate site/module in the Python original
-- **Disk caching** - the Python original caches responses to disk; deliberately deprioritized here since a compiled Rust binary doesn't pay the interpreter-startup cost that makes caching worthwhile in Python
 - **The `dataframe`/`polars` Cargo feature** - declared in `Cargo.toml` but unused; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source
 
 ## Requirements
@@ -49,16 +49,10 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-```
-Commands:
-  version        Print the current version
-  bhavcopy       Download NSE's daily bhavcopy (whole-market OHLC data) for one date
-  bhavcopy-fo    Download NSE's daily F&O (derivatives) bhavcopy for one date
-  full-bhavcopy  Download NSE's "full" bhavcopy (every series, with delivery data)
-  stock          Download a stock's daily price/volume history over a date range
-  index          Download an index's daily OHLC history over a date range
-  derivatives    Download F&O (futures/options) daily price and open-interest history
-```
+Run `jugaad --help` for the full, always-current command list (15 commands
+as of this writing - bhavcopy in three variants, stock/index/derivatives
+history, bulk deals, generic daily reports, and index P/E/TRI/discovery).
+A few representative examples:
 
 ```bash
 # Whole-market bhavcopy for one day

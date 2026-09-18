@@ -7,7 +7,9 @@
 #![allow(clippy::unwrap_used)]
 
 use chrono::NaiveDate;
-use jugaad_core::nse::{Instrument, NseArchives, NseHistory, NseIndexHistory, OptionType};
+use jugaad_core::nse::{
+    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, OptionType,
+};
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap()
@@ -105,6 +107,40 @@ async fn bulk_deals_raw_fetches_the_current_report() {
     let text = archives.bulk_deals_raw().await.unwrap();
 
     assert!(text.starts_with("Date,Symbol"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn list_available_reports_includes_bulk_deal() {
+    let reports = NseDailyReports::new().unwrap();
+    let summaries = reports.list_available_reports("CM").await.unwrap();
+
+    assert!(!summaries.is_empty());
+    assert!(summaries.iter().any(|s| s.file_key == "CM-BULK-DEAL"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn download_report_raw_fetches_bulk_deal() {
+    let reports = NseDailyReports::new().unwrap();
+    let bytes = reports
+        .download_report_raw("CM-BULK-DEAL", "CM")
+        .await
+        .unwrap();
+
+    assert!(String::from_utf8_lossy(&bytes).starts_with("Date,Symbol"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn download_report_raw_returns_not_found_for_an_unknown_file_key() {
+    let reports = NseDailyReports::new().unwrap();
+    let err = reports
+        .download_report_raw("NOT-A-REAL-FILE-KEY", "CM")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NotFound(_)));
 }
 
 #[tokio::test]

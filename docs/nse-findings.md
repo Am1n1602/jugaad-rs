@@ -256,3 +256,59 @@ arguments checked for consistency at runtime, it uses an `Instrument` enum
 where `OptIdx`/`OptStk` variants always carry their strike price and option
 type - making "asked for an option without a strike price" impossible to
 construct rather than a runtime error.
+
+## The generic daily-reports API only covers today and yesterday
+
+`NseDailyReports` (`GET https://www.nseindia.com/api/daily-reports?key={segment}`)
+is a metadata API listing every report NSE currently has available for a
+segment (`"CM"`, `"FO"`, ...) - confirmed 39 report types for `"CM"`,
+matching the Python docstring's "39+ report types" claim exactly. Each
+entry gives a `fileKey` (e.g. `"CM-BULK-DEAL"`, `"CM-VOLATILITY"`), a
+`filePath`, and a `fileActlName` - concatenating the two directly gives a
+working download URL, no separate base URL needed (the API's own
+`filePath` value already includes the full host, complete with an odd
+double slash after the domain, e.g.
+`"https://nsearchives.nseindia.com//content/equities/"` - that's the API's
+own data, not something `jugaad-rs` introduces).
+
+A few things worth knowing:
+
+- **Unlike `NseHistory`, this needs no cookie warm-up at all** - confirmed
+  by hitting the metadata endpoint from a completely fresh session with
+  zero prior requests, which still returned 200 with real data.
+- **The response only ever has a `CurrentDay` and `PreviousDay` entry**
+  (plus an unused `FutureDay`, always empty in testing) - this API
+  genuinely cannot fetch older data, matching the Python docstring's "API
+  supports current day and previous day only." There's no point exposing a
+  `trading_date` parameter the way the Python internals technically allow,
+  since Python's own higher-level `download_report` convenience function
+  doesn't either - it just prefers the current day's file, falling back to
+  the previous day's.
+- **The same `fileKey` can appear in both `CurrentDay` and `PreviousDay`**
+  with different `tradingDate`s (e.g. `CM-UDIFF-BHAVCOPY-CSV` shows up
+  twice, once per day) - `jugaad-rs` searches `CurrentDay` before
+  `PreviousDay` so an unqualified lookup naturally prefers today's file,
+  matching Python's exact search order.
+- **An unknown `segment` value doesn't error - it returns a different JSON
+  shape entirely**: `{"data":[],"msg":"no data found"}` instead of the
+  normal `{"PreviousDay":[...],"CurrentDay":[...],...}` shape. Modeled with
+  `#[serde(default)]` on both day-list fields, so this shape just
+  deserializes as "no files today or yesterday either" - the same
+  ambiguous-empty-result pattern used everywhere else in this project,
+  rather than a special case to detect.
+- **Downloaded files can be any format** - CSV, zip, proprietary `.DAT`
+  files - so `download_report_raw` returns raw bytes rather than assuming
+  UTF-8 text, unlike every other fetcher in this crate. `download_report_save`
+  writes under NSE's own filename for the report rather than one
+  `jugaad-rs` invents, since there's no date/range to build one from and
+  the correct extension depends on the file.
+
+An unknown `fileKey` (as opposed to an unknown `segment`) is a genuinely
+different situation from "no data for this date" - it means the caller
+asked for something that doesn't exist at all, not that a real date came
+back empty. Originally this reused `Error::NoData`, whose message
+("Data not published due to holiday, weekend or not released yet") is
+actively misleading for a bad file key. Caught by actually reading the
+CLI's error output while testing the `daily-report` command, not by
+reasoning about it up front. Fixed by adding a dedicated `Error::NotFound`
+variant rather than stretching `NoData`'s meaning further.

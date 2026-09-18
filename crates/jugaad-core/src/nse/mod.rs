@@ -1,9 +1,11 @@
 pub mod archives;
+pub mod daily_reports;
 mod dates;
 pub mod history;
 pub mod index;
 
 pub use archives::NseArchives;
+pub use daily_reports::{NseDailyReports, ReportDate, ReportSummary};
 pub use history::{DerivativeHistoryRow, Instrument, NseHistory, OptionType, StockHistoryRow};
 pub use index::{IndexHistoryRow, IndexPeRow, IndexTriRow, NseIndexHistory};
 
