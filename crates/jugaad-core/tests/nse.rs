@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used)]
 
 use chrono::NaiveDate;
-use jugaad_core::nse::{NseArchives, NseHistory, NseIndexHistory};
+use jugaad_core::nse::{Instrument, NseArchives, NseHistory, NseIndexHistory, OptionType};
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(y, m, d).unwrap()
@@ -103,6 +103,66 @@ async fn index_history_raw_returns_empty_for_an_unknown_index_name() {
     let history = NseIndexHistory::new().unwrap();
     let rows = history
         .index_history_raw("NOT A REAL INDEX", date(2024, 8, 1), date(2024, 8, 5))
+        .await
+        .unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn derivatives_history_raw_fetches_index_futures() {
+    let history = NseHistory::new().unwrap();
+    let rows = history
+        .derivatives_history_raw(
+            "NIFTY",
+            date(2024, 12, 1),
+            date(2024, 12, 5),
+            date(2024, 12, 26),
+            Instrument::FutIdx,
+        )
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row.instrument == "FUTIDX"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn derivatives_history_raw_fetches_index_options() {
+    let history = NseHistory::new().unwrap();
+    let rows = history
+        .derivatives_history_raw(
+            "NIFTY",
+            date(2024, 12, 1),
+            date(2024, 12, 5),
+            date(2024, 12, 26),
+            Instrument::OptIdx {
+                strike_price: 24000.0,
+                option_type: OptionType::Call,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row.option_type == "CE"));
+    assert!(rows.iter().all(|row| row.strike_price == 24000.0));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn derivatives_history_raw_returns_empty_for_an_unknown_expiry() {
+    let history = NseHistory::new().unwrap();
+    let rows = history
+        .derivatives_history_raw(
+            "NIFTY",
+            date(2024, 12, 1),
+            date(2024, 12, 5),
+            date(2099, 1, 1),
+            Instrument::FutIdx,
+        )
         .await
         .unwrap();
 

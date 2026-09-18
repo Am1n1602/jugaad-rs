@@ -4,7 +4,7 @@ pub mod history;
 pub mod index;
 
 pub use archives::NseArchives;
-pub use history::{NseHistory, StockHistoryRow};
+pub use history::{DerivativeHistoryRow, Instrument, NseHistory, OptionType, StockHistoryRow};
 pub use index::{IndexHistoryRow, NseIndexHistory};
 
 // NSE blocks requests that don't look like they came from a browser.

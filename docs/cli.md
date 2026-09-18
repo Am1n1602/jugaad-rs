@@ -20,6 +20,7 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`bhavcopy`](#bhavcopy) - download the whole market's daily OHLC data for one date
 - [`stock`](#stock) - download one stock's daily price/volume history over a date range
 - [`index`](#index) - download one index's daily OHLC history over a date range
+- [`derivatives`](#derivatives) - download F&O price/open-interest history for one contract
 
 ---
 
@@ -209,6 +210,79 @@ Saved index history to data/nse/index_history/NIFTY 50-2024-08-01-2024-08-31.csv
 
 ---
 
+## `derivatives`
+
+Downloads price/open-interest history for one F&O (futures & options)
+contract over a date range and saves it as a CSV, with one row per
+trading day.
+
+```bash
+jugaad derivatives [OPTIONS] --from <FROM> --to <TO> --expiry <EXPIRY> --instrument <INSTRUMENT> <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `NIFTY` (index) or `RELIANCE` (stock) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-f, --from <FROM>` | *(required)* | Start date (inclusive), `yyyy-mm-dd` |
+| `-t, --to <TO>` | *(required)* | End date (inclusive), `yyyy-mm-dd` |
+| `-e, --expiry <EXPIRY>` | *(required)* | Contract expiry date, `yyyy-mm-dd` |
+| `-i, --instrument <INSTRUMENT>` | *(required)* | One of `fut-idx`, `fut-stk`, `opt-idx`, `opt-stk` |
+| `-p, --strike-price <STRIKE_PRICE>` | *(required for options)* | Strike price, e.g. `24000` |
+| `--option-type <OPTION_TYPE>` | *(required for options)* | `call` or `put` |
+| `-o, --output <OUTPUT>` | `data/nse/derivatives_history` | Directory to save the CSV into |
+
+`--strike-price` and `--option-type` are only valid (and required) for
+`opt-idx`/`opt-stk`; the command errors out immediately if either is
+missing for an option instrument, or ignores them if given for a future.
+
+### Examples
+
+```bash
+# NIFTY index futures
+jugaad derivatives NIFTY --from 2024-12-01 --to 2024-12-05 --expiry 2024-12-26 --instrument fut-idx
+
+# NIFTY 24000 call option
+jugaad derivatives NIFTY --from 2024-12-01 --to 2024-12-05 --expiry 2024-12-26 \
+  --instrument opt-idx --strike-price 24000 --option-type call
+
+# A stock future
+jugaad derivatives RELIANCE --from 2024-12-01 --to 2024-12-05 --expiry 2024-12-26 --instrument fut-stk
+```
+
+```
+Saved derivatives history to data/nse/derivatives_history/NIFTY-2024-12-01-2024-12-05-2024-12-26-OPTIDX-24000-CE.csv
+```
+
+The filename includes the strike price and option type for options (not
+just futures), so different contracts for the same symbol/expiry/range
+don't overwrite each other's files.
+
+### CSV columns
+
+`instrument, symbol, expiry, strike_price, option_type, date, open, high, low, close, ltp, prev_close, settle_price, volume, value, open_interest, change_in_oi, market_lot, underlying_value`
+
+`strike_price` is `0` and `option_type` is `XX` for futures rows, since
+neither applies to a future. `underlying_value` is blank for index
+instruments (e.g. NIFTY) but populated for stock instruments.
+
+### Notes
+
+- Same chunking behavior as `stock`/`index`: multi-month ranges are split
+  and fetched concurrently.
+- Same empty-result behavior too: an expiry date that doesn't exist for
+  the symbol succeeds but writes a completely empty file.
+- `change_in_oi` can be negative (open interest shrinking day over day) -
+  don't assume it's an unsigned count.
+
+---
+
 ## Errors
 
 Errors are printed as a plain message and exit with a non-zero status.
@@ -222,5 +296,5 @@ The full list, from [`error.rs`](../crates/jugaad-core/src/error.rs):
 | `unexpected HTTP status from NSE: ...` | NSE returned something other than success/not-found/forbidden |
 | `failed to parse response: ...` | NSE's response wasn't shaped as expected (e.g. an undocumented format change) |
 | `io error: ...` | A local filesystem problem (e.g. no permission to write the output directory) |
-| `a concurrent fetch task panicked or was cancelled: ...` | Internal bug in a `stock`/`index` chunk-fetch task; please report this |
+| `a concurrent fetch task panicked or was cancelled: ...` | Internal bug in a `stock`/`index`/`derivatives` chunk-fetch task; please report this |
 | `failed to write CSV: ...` | Something went wrong writing the output file |
