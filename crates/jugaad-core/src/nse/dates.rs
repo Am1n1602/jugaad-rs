@@ -1,8 +1,9 @@
 //! Date handling shared across NSE endpoints: chunking long ranges that
-//! aren't reliable in a single request (stock and index history), and
-//! parsing the common `"17-Sep-2026"`-style date format several endpoints
-//! use. Each was moved here once a second, identical consumer showed up -
-//! not written speculatively ahead of that.
+//! aren't reliable in a single request (stock and index history), sorting
+//! chunked results back into order (see `sort_by_date_desc`), and parsing
+//! the common `"17-Sep-2026"`-style date format several endpoints use.
+//! Each was moved here once a second, identical consumer showed up - not
+//! written speculatively ahead of that.
 
 use chrono::{Datelike, Months, NaiveDate};
 use serde::{Deserialize, Deserializer};
@@ -38,6 +39,22 @@ pub(crate) fn break_into_month_chunks(
         };
     }
     chunks
+}
+
+/// Sorts `rows` into descending (most-recent-first) date order, using
+/// `date_of` to read each row's date.
+///
+/// NSE and niftyindices both return each *chunked* request's rows already
+/// sorted - but in descending order internally, not ascending (confirmed
+/// live for stock history, derivatives history, and niftyindices' history
+/// endpoint). Since multi-month ranges are split into calendar-month
+/// chunks and concatenated in ascending chunk order, naively concatenating
+/// chunk results produces a "sawtooth" order - descending within each
+/// chunk, but ascending chunk to chunk - rather than one correctly sorted
+/// sequence. This normalizes that, regardless of how many chunks there
+/// were or what order they completed in.
+pub(crate) fn sort_by_date_desc<T>(rows: &mut [T], date_of: impl Fn(&T) -> NaiveDate) {
+    rows.sort_by_key(|row| std::cmp::Reverse(date_of(row)));
 }
 
 /// Parses dates shaped like `"17-Sep-2026"`, used by stock/derivatives
@@ -88,5 +105,44 @@ mod tests {
         let from = date(2024, 6, 15);
         let to = date(2024, 6, 30);
         assert_eq!(break_into_month_chunks(from, to), vec![(from, to)]);
+    }
+
+    #[test]
+    fn sort_by_date_desc_orders_newest_first() {
+        let mut rows = vec![date(2024, 1, 1), date(2024, 3, 1), date(2024, 2, 1)];
+        sort_by_date_desc(&mut rows, |d| *d);
+        assert_eq!(
+            rows,
+            vec![date(2024, 3, 1), date(2024, 2, 1), date(2024, 1, 1)]
+        );
+    }
+
+    // Reproduces the real bug this function fixes: each "chunk" (Jan, then
+    // Feb) is internally descending - NSE's actual behavior, confirmed
+    // live - but chunks get concatenated in ascending chronological order.
+    // Without sorting, that produces a "sawtooth" pattern rather than one
+    // correctly ordered sequence.
+    #[test]
+    fn sort_by_date_desc_fixes_the_sawtooth_pattern_from_concatenated_chunks() {
+        let mut rows = vec![
+            date(2024, 1, 31),
+            date(2024, 1, 15),
+            date(2024, 1, 1),
+            date(2024, 2, 29),
+            date(2024, 2, 15),
+            date(2024, 2, 1),
+        ];
+        sort_by_date_desc(&mut rows, |d| *d);
+        assert_eq!(
+            rows,
+            vec![
+                date(2024, 2, 29),
+                date(2024, 2, 15),
+                date(2024, 2, 1),
+                date(2024, 1, 31),
+                date(2024, 1, 15),
+                date(2024, 1, 1),
+            ]
+        );
     }
 }

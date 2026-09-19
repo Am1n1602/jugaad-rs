@@ -542,3 +542,33 @@ used throughout this crate. `status`/`exDate`/`purpose` were `null` in
 every deal observed - kept as `Option<String>` rather than dropped, since
 they read like fields meant for corporate-action-linked deals this
 crate hasn't seen an example of yet.
+
+## Real bug: multi-month ranges came back in a "sawtooth" order, not chronological
+
+Found by a user actually looking at exported CSV output, not by
+reasoning about the code up front - `stock_history_raw`,
+`derivatives_history_raw`, `index_history_raw`, `index_pe_history_raw`
+and `index_tri_history_raw` all split a multi-month range into
+calendar-month chunks (`break_into_month_chunks`), fetch them
+concurrently, then concatenate the results in the order chunks were
+*pushed* (ascending chronological order: earliest month first). The
+concatenation code's own comment claimed this "keeps rows in
+chronological order" - that assumption was never actually verified and
+turned out to be wrong.
+
+Confirmed live (both curl and Python's `requests`, ruling out a
+client-specific quirk): NSE's `historicalOR` endpoints and niftyindices'
+history endpoint both return each **single chunk's** rows in **descending**
+date order internally (newest first), not ascending. So a 5-month request
+split into 5 chunks and concatenated in push order produced a "sawtooth"
+result - descending *within* each month, but ascending *across* months
+(April's rows newest-to-oldest, then May's newest-to-oldest, then June's,
+...) - rather than one consistently ordered sequence in either direction.
+
+Fixed by no longer trusting either NSE's per-chunk order or the
+concatenation order at all: `sort_by_date_desc` (in `dates.rs`) explicitly
+sorts the fully-concatenated result by date, descending, after every
+chunked fetch. This is correct regardless of how many chunks there were,
+what order they completed in, or what order NSE happens to return within
+a chunk - it doesn't depend on inferring NSE's internal ordering ever
+again.

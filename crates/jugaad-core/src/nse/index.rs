@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::Semaphore;
 
 use super::USER_AGENT;
-use super::dates::break_into_month_chunks;
+use super::dates::{break_into_month_chunks, sort_by_date_desc};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://niftyindices.com";
@@ -186,6 +186,14 @@ impl NseIndexHistory {
             rows.extend(task.await??);
         }
 
+        // Confirmed live: niftyindices returns each chunk in descending
+        // date order internally (newest first), not ascending - so
+        // concatenating chunks in push order does NOT give a
+        // chronologically sorted result on its own. This sort is what
+        // actually guarantees the final order, regardless of chunk count
+        // or completion order.
+        sort_by_date_desc(&mut rows, |row| row.date);
+
         Ok(rows)
     }
 
@@ -243,6 +251,11 @@ impl NseIndexHistory {
         for task in tasks {
             rows.extend(task.await??);
         }
+
+        // See the identical sort in `index_history_raw` - same
+        // descending-per-chunk behavior, confirmed live for this
+        // endpoint too.
+        sort_by_date_desc(&mut rows, |row| row.date);
 
         Ok(rows)
     }
@@ -308,6 +321,11 @@ impl NseIndexHistory {
         for task in tasks {
             rows.extend(task.await??);
         }
+
+        // See the identical sort in `index_history_raw` - same
+        // descending-per-chunk behavior, confirmed live for this
+        // endpoint too.
+        sort_by_date_desc(&mut rows, |row| row.date);
 
         Ok(rows)
     }

@@ -169,6 +169,11 @@ async fn stock_history_raw_splits_a_multi_month_range() {
     // Roughly 20 trading days/month; just check chunking actually stitched
     // together more than a single month's worth of rows.
     assert!(rows.len() > 30);
+    // NSE returns each chunk's rows in descending order internally, so
+    // this is the case that actually catches the "sawtooth" bug - naively
+    // concatenating chunks in ascending-month order without a final sort
+    // would fail this.
+    assert!(rows.windows(2).all(|w| w[0].date >= w[1].date));
 }
 
 #[tokio::test]
@@ -206,6 +211,8 @@ async fn index_history_raw_splits_a_multi_month_range() {
         .unwrap();
 
     assert!(rows.len() > 30);
+    // See the identical assertion in stock_history_raw_splits_a_multi_month_range.
+    assert!(rows.windows(2).all(|w| w[0].date >= w[1].date));
 }
 
 #[tokio::test]
@@ -319,6 +326,27 @@ async fn derivatives_history_raw_fetches_index_options() {
     assert!(!rows.is_empty());
     assert!(rows.iter().all(|row| row.option_type == "CE"));
     assert!(rows.iter().all(|row| row.strike_price == 24000.0));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn derivatives_history_raw_splits_a_multi_month_range() {
+    let history = NseHistory::new().unwrap();
+    let rows = history
+        .derivatives_history_raw(
+            "NIFTY",
+            date(2024, 11, 1),
+            date(2024, 12, 5),
+            date(2024, 12, 26),
+            Instrument::FutIdx,
+        )
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    // See the identical assertion in stock_history_raw_splits_a_multi_month_range -
+    // NSE returns each chunk's rows in descending order internally.
+    assert!(rows.windows(2).all(|w| w[0].date >= w[1].date));
 }
 
 #[tokio::test]

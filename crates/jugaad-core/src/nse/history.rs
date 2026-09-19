@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
 use super::USER_AGENT;
-use super::dates::{break_into_month_chunks, deserialize_nse_date};
+use super::dates::{break_into_month_chunks, deserialize_nse_date, sort_by_date_desc};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
@@ -265,12 +265,17 @@ impl NseHistory {
             }));
         }
 
-        // Awaiting in the order the chunks were pushed keeps rows in
-        // chronological order, even though they were fetched concurrently.
         let mut rows = Vec::new();
         for task in tasks {
             rows.extend(task.await??);
         }
+
+        // Confirmed live: NSE returns each chunk in descending date order
+        // internally (newest first), not ascending - so concatenating
+        // chunks in push order does NOT give a chronologically sorted
+        // result on its own. This sort is what actually guarantees the
+        // final order, regardless of chunk count or completion order.
+        sort_by_date_desc(&mut rows, |row| row.date);
 
         Ok(rows)
     }
@@ -403,6 +408,11 @@ impl NseHistory {
         for task in tasks {
             rows.extend(task.await??);
         }
+
+        // See the identical sort in `stock_history_raw` - NSE's per-chunk
+        // order is descending, not ascending, confirmed live for this
+        // endpoint too.
+        sort_by_date_desc(&mut rows, |row| row.date);
 
         Ok(rows)
     }
