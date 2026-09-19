@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
-    OptionChainKind, OptionType,
+    Instrument, NseArchives, NseCorporateResults, NseDailyReports, NseHistory, NseIndexHistory,
+    NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
 };
 
 #[derive(Debug, Parser)]
@@ -49,6 +49,23 @@ impl From<OptionChainKindArg> for OptionChainKind {
         match kind {
             OptionChainKindArg::Index => OptionChainKind::Index,
             OptionChainKindArg::Equity => OptionChainKind::Equity,
+        }
+    }
+}
+
+/// Financial-results period as accepted on the command line, mapped onto
+/// jugaad_core's `ResultPeriod`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum ResultPeriodArg {
+    Annual,
+    Quarterly,
+}
+
+impl From<ResultPeriodArg> for ResultPeriod {
+    fn from(period: ResultPeriodArg) -> Self {
+        match period {
+            ResultPeriodArg::Annual => ResultPeriod::Annual,
+            ResultPeriodArg::Quarterly => ResultPeriod::Quarterly,
         }
     }
 }
@@ -328,6 +345,46 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/currency_option_chain")]
         output: PathBuf,
     },
+    /// Download a symbol's financial-results filings - only the
+    /// "equities" and "sme" segments are supported
+    FinancialResults {
+        /// Symbol, e.g. TCS or SBIN
+        symbol: String,
+        /// Listed-entity segment - only "equities" and "sme" are supported
+        #[arg(short, long, default_value = "equities")]
+        segment: String,
+        /// Annual or quarterly filings
+        #[arg(short, long, value_enum)]
+        period: ResultPeriodArg,
+        /// Start date (inclusive), e.g. 2018-01-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2024-12-31
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/financial_results")]
+        output: PathBuf,
+    },
+    /// Download a filing's raw XBRL document (get the URL from
+    /// financial-results' xbrl_url column)
+    DownloadXbrl {
+        /// XBRL URL
+        url: String,
+        /// Directory to save the file into
+        #[arg(short, long, default_value = "data/nse/financial_results")]
+        output: PathBuf,
+    },
+    /// Download a filing's raw HTML detail page (get the URL from
+    /// financial-results' result_detailed_data_link column) - only
+    /// available for older filings that have no real XBRL
+    DownloadResultHtml {
+        /// HTML detail-page URL
+        url: String,
+        /// Directory to save the file into
+        #[arg(short, long, default_value = "data/nse/financial_results")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -564,6 +621,33 @@ async fn main() -> anyhow::Result<()> {
             let quote = NseQuote::new()?;
             let path = quote.currency_option_chain_csv(&symbol, &output).await?;
             println!("Saved currency option chain to {}", path.display());
+        }
+        Command::FinancialResults {
+            symbol,
+            segment,
+            period,
+            from,
+            to,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateResults::new()?;
+            let path = client
+                .financial_results_csv(&segment, &symbol, period.into(), from, to, &output)
+                .await?;
+            println!("Saved financial results to {}", path.display());
+        }
+        Command::DownloadXbrl { url, output } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateResults::new()?;
+            let path = client.download_xbrl_save(&url, &output).await?;
+            println!("Saved XBRL document to {}", path.display());
+        }
+        Command::DownloadResultHtml { url, output } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateResults::new()?;
+            let path = client.download_result_html_save(&url, &output).await?;
+            println!("Saved result detail page to {}", path.display());
         }
     }
     Ok(())

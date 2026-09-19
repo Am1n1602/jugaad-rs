@@ -39,6 +39,9 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`index-quote`](#index-quote) - download a single index's live value, volume and turnover
 - [`option-chain`](#option-chain) - download an index or equity's option chain
 - [`currency-option-chain`](#currency-option-chain) - download a currency pair's option chain
+- [`financial-results`](#financial-results) - download a symbol's financial-results filings (equities/sme only)
+- [`download-xbrl`](#download-xbrl-download-result-html) - download a filing's raw XBRL document
+- [`download-result-html`](#download-xbrl-download-result-html) - download a filing's raw HTML detail page (older filings only)
 
 ---
 
@@ -1134,6 +1137,119 @@ Saved currency option chain to data/nse/currency_option_chain/USDINR-currency-op
   currency option-chain endpoint doesn't take an expiry filter) - no
   `--expiry` flag.
 - Same no-real-contract skip behavior as `option-chain`.
+
+---
+
+## `financial-results`
+
+Downloads a symbol's Regulation-33 financial-results filings - NSE's
+older, pre-Integrated-Filing filing type, and the only source for
+machine-readable financials before SEBI's newer Integrated Filing
+framework existed (roughly FY2024-25 on). Saves as a CSV, one row per
+filing.
+
+```bash
+jugaad financial-results [OPTIONS] --period <PERIOD> --from <FROM> --to <TO> <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `TCS` or `SBIN` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-s, --segment <SEGMENT>` | `equities` | Listed-entity segment - **only `equities` and `sme` are supported**, see Notes |
+| `-p, --period <PERIOD>` | *(required)* | `annual` or `quarterly` |
+| `-f, --from <FROM>` | *(required)* | Start date (inclusive), `yyyy-mm-dd` |
+| `-t, --to <TO>` | *(required)* | End date (inclusive), `yyyy-mm-dd` |
+| `-o, --output <OUTPUT>` | `data/nse/financial_results` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad financial-results TCS --period annual --from 2012-01-01 --to 2024-12-31
+```
+
+```
+Saved financial results to data/nse/financial_results/TCS-equities-annual-financial-results.csv
+```
+
+### CSV columns
+
+`symbol, company_name, isin, consolidated, audited, period, relating_to, ind_as, from_date, to_date, filing_date, xbrl_url, result_detailed_data_link`
+
+### Notes
+
+- **Only `--segment equities` and `--segment sme` are supported.**
+  Confirmed live: `insurance` and `reitsinvits` return a completely
+  different, incompatible response shape through this same NSE endpoint
+  (not modeled here - would fail to parse), and `debt` returned no data
+  in any test. See
+  [nse-findings.md](nse-findings.md#corporates-financial-results-returns-a-genuinely-different-schema-per-segment).
+- `xbrl_url` is blank for filings before real XBRL existed (roughly
+  pre-FY2018-19 for equities) - use `result_detailed_data_link` instead
+  for those, via `download-result-html`. Neither may be populated for a
+  small fraction of the oldest filings.
+- Returns an empty file (no header row) for an unknown symbol, rather
+  than an error - confirmed live, same ambiguous-empty convention used
+  throughout this tool.
+
+---
+
+## `download-xbrl`, `download-result-html`
+
+Downloads a single filing's document, given a URL from
+`financial-results`' output. Two separate commands because the two URL
+types are from genuinely different eras of NSE's data and have different
+content types - `download-xbrl` fetches structured XML, `download-result-html`
+fetches an HTML page - not because the download mechanics differ (they
+don't; both are a plain unauthenticated download to the same file host).
+
+```bash
+jugaad download-xbrl [OPTIONS] <URL>
+jugaad download-result-html [OPTIONS] <URL>
+```
+
+### Arguments
+
+| Argument | Applies to | Description |
+|---|---|---|
+| `<URL>` | both | A URL copied from `financial-results`' `xbrl_url` or `result_detailed_data_link` column |
+
+### Options
+
+| Flag | Default | Applies to | Description |
+|---|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/financial_results` | both | Directory to save the file into |
+
+### Examples
+
+```bash
+jugaad download-xbrl "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_104550_1090534_12042024090438.xml"
+```
+```
+Saved XBRL document to data/nse/financial_results/INDAS_104550_1090534_12042024090438.xml
+```
+
+```bash
+jugaad download-result-html "https://nsearchives.nseindia.com/archives/financial_results/financial_res_TCS_93671.html"
+```
+```
+Saved result detail page to data/nse/financial_results/financial_res_TCS_93671.html
+```
+
+### Notes
+
+- Both save under NSE's own filename (the URL's last path segment) -
+  unlike most commands here, there's no symbol/date to build a filename
+  from since these take a bare URL.
+- `download-xbrl` only makes sense for a filing whose `xbrl_url` column
+  wasn't blank; `download-result-html` only for one whose
+  `result_detailed_data_link` wasn't blank.
 
 ---
 

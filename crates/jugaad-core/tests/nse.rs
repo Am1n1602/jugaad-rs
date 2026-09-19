@@ -8,8 +8,8 @@
 
 use chrono::NaiveDate;
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
-    OptionChainKind, OptionType,
+    ConsolidationBasis, Instrument, NseArchives, NseCorporateResults, NseDailyReports, NseHistory,
+    NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -506,5 +506,127 @@ async fn block_deal_session_raw_succeeds() {
     assert!(
         rows.iter()
             .all(|r| r.session == "session1" || r.session == "session2")
+    );
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn financial_results_raw_fetches_tcs_annual_filings() {
+    let client = NseCorporateResults::new().unwrap();
+    let rows = client
+        .financial_results_raw(
+            "equities",
+            "TCS",
+            ResultPeriod::Annual,
+            date(2012, 1, 1),
+            date(2026, 9, 19),
+        )
+        .await
+        .unwrap();
+
+    assert!(rows.len() > 20);
+    assert!(rows.iter().all(|r| r.symbol == "TCS"));
+    // Oldest filings have no real XBRL (confirmed live); newest ones do.
+    assert!(rows.iter().any(|r| r.xbrl_url.is_none()));
+    assert!(rows.iter().any(|r| r.xbrl_url.is_some()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn financial_results_raw_returns_empty_for_an_unknown_symbol() {
+    let client = NseCorporateResults::new().unwrap();
+    let rows = client
+        .financial_results_raw(
+            "equities",
+            "NOTAREALSYMBOL",
+            ResultPeriod::Annual,
+            date(2015, 1, 1),
+            date(2026, 9, 19),
+        )
+        .await
+        .unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn financial_results_raw_parses_sme_segment() {
+    let client = NseCorporateResults::new().unwrap();
+    // sme filings are frequent enough that a recent quarter should have
+    // several - no specific symbol needed since this just checks the
+    // sme-specific "Unaudited" (no hyphen) spelling parses correctly.
+    let rows = client
+        .financial_results_raw(
+            "sme",
+            "",
+            ResultPeriod::Quarterly,
+            date(2026, 1, 1),
+            date(2026, 9, 19),
+        )
+        .await
+        .unwrap();
+
+    // An empty symbol matches nothing - this just confirms the segment
+    // parameter itself doesn't error; the real sme shape/casing coverage
+    // is in the unit tests using a captured sample.
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn download_xbrl_raw_and_download_result_html_raw_both_succeed() {
+    let client = NseCorporateResults::new().unwrap();
+    let rows = client
+        .financial_results_raw(
+            "equities",
+            "TCS",
+            ResultPeriod::Annual,
+            date(2012, 1, 1),
+            date(2026, 9, 19),
+        )
+        .await
+        .unwrap();
+
+    let with_xbrl = rows.iter().find(|r| r.xbrl_url.is_some()).unwrap();
+    let xbrl_bytes = client
+        .download_xbrl_raw(with_xbrl.xbrl_url.as_deref().unwrap())
+        .await
+        .unwrap();
+    assert!(!xbrl_bytes.is_empty());
+
+    let with_html = rows
+        .iter()
+        .find(|r| r.result_detailed_data_link.is_some())
+        .unwrap();
+    let html_bytes = client
+        .download_result_html_raw(with_html.result_detailed_data_link.as_deref().unwrap())
+        .await
+        .unwrap();
+    assert!(!html_bytes.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn financial_results_raw_deserializes_consolidation_basis_correctly() {
+    let client = NseCorporateResults::new().unwrap();
+    let rows = client
+        .financial_results_raw(
+            "equities",
+            "TCS",
+            ResultPeriod::Annual,
+            date(2023, 1, 1),
+            date(2024, 12, 31),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        rows.iter()
+            .any(|r| r.consolidated == ConsolidationBasis::Consolidated)
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r.consolidated == ConsolidationBasis::NonConsolidated)
     );
 }

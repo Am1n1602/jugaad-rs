@@ -572,3 +572,94 @@ chunked fetch. This is correct regardless of how many chunks there were,
 what order they completed in, or what order NSE happens to return within
 a chunk - it doesn't depend on inferring NSE's internal ordering ever
 again.
+
+## `corporates-financial-results` returns a genuinely different schema per segment
+
+`GET /api/corporates-financial-results` (NSE's older, pre-Integrated-Filing
+"Regulation 33 Financial Results" filing type - the only source for
+machine-readable financials before SEBI's Integrated Filing framework
+existed, roughly FY2024-25 on) takes an `index` query parameter for the
+listed-entity segment (`equities`, `sme`, `reitsinvits`, `insurance`,
+`debt`). Confirmed live across all five: **the response shape itself
+differs by segment**, not just field values - this isn't the usual
+"some fields are sometimes null" pattern seen elsewhere in this crate.
+
+- **`equities` and `sme`** share the shape `FinancialResultRow` models:
+  `symbol`/`companyName`/`isin`/`consolidated`/`audited`/`fromDate`/
+  `toDate`/`filingDate`/`xbrl`/etc.
+- **`insurance`** has a different set of fields entirely: no `isin`, no
+  `fromDate`/`toDate` (has `periodEnd` instead, a single date not a
+  range), no `filingDate` - and adds `insuranceType`, `naAttach`, `ixbrl`.
+- **`reitsinvits`** is different again, and its `xbrl` filenames literally
+  contain the string `INTEGRATED_FILING` - this segment appears to be
+  serving data from SEBI's *newer* Integrated Filing framework through
+  this same older endpoint URL, with field names like `auditedUnaudited`/
+  `consNoncons`/`submissionDate`/`typeOfSubmission` instead of the
+  Regulation-33 names.
+- **`debt`** returned zero rows in every query tried, including the
+  unfiltered-bulk-pull below (which found real data immediately for every
+  other segment) - genuinely untested/unconfirmed, not silently assumed
+  to work.
+
+`NseCorporateResults::financial_results_raw` therefore only supports
+`equities`/`sme`; passing `insurance`/`reitsinvits`/`debt` will either
+fail to deserialize or (for `debt`) just return nothing.
+
+### The `issuer` parameter looks like a filter but is silently ignored
+
+Confirmed live: `issuer=TCS` does not filter anything - it returns every
+company's filings (30,543 rows across 2,381 distinct symbols for one
+query), with a normal `200` status, not an error. The correct filter
+parameter is `symbol`. `financial_results_raw` doesn't expose `issuer` as
+a parameter at all, specifically to avoid this footgun.
+
+This same "ignore the filter, return everything" behavior turned out to
+be a useful tool for verification: passing a symbol that doesn't exist as
+`issuer` reliably dumps every record for a segment/period, which is how
+the cross-segment field-value distributions below were checked against
+~49,000 real records instead of one company's ~26.
+
+### Two fields spell the same value differently depending on segment
+
+Across ~49,000 equities+sme records, `consolidated` and `audited` each
+have exactly two values with no third - but `audited`'s "not audited"
+value is spelled `"Un-Audited"` for equities and `"Unaudited"` (no
+hyphen) for sme. Modeled as one `AuditStatus` enum with
+`#[serde(rename = "Un-Audited", alias = "Unaudited")]` so callers don't
+need to know which segment uses which spelling. `consolidated`'s two
+values (`"Consolidated"`/`"Non-Consolidated"`) were spelled consistently
+across every segment checked.
+
+`cumulative` (`"Cumulative"`/`"Non-cumulative"` for equities,
+`"Cumulative"`/`"Non-Cumulative"` for sme - yet another casing
+inconsistency) turned out to be 100% redundant with `period` across every
+one of the ~49,000 records checked (`Annual` always paired with
+`Cumulative`, `Quarterly` always with the non-cumulative spelling) - not
+modeled at all, rather than adding a field that duplicates `period` and
+adds its own casing inconsistency on top.
+
+### The `xbrl` field's placeholder value, and its fallback
+
+`xbrl` is always present as a string (never missing, never JSON `null`,
+confirmed across ~49,000 records) - but for filings from before real
+XBRL existed, NSE sends a placeholder URL ending in `/-`
+(`https://nsearchives.nseindia.com/corporate/xbrl/-`) instead of a real
+file. For TCS specifically, real XBRL starts at FY2018-19 annual (filed
+Apr-2019); every earlier annual filing back to FY2012-13 has the
+placeholder. `FinancialResultRow::xbrl_url` normalizes the placeholder to
+`None` rather than treating it as a real, downloadable URL.
+
+`resultDetailedDataLink` (an HTML filing-detail page, not structured
+data) is the fallback for the placeholder-XBRL era: confirmed live, it's
+populated for 7,872 of 9,604 placeholder-XBRL annual records and *never*
+for a real-XBRL record - a genuine, mostly-but-not-always-available
+substitute, not noise. `resultDescription` by contrast was `null` in
+every one of the ~49,000 records checked and isn't modeled at all.
+
+Because the two download URLs come from genuinely different eras with
+different content types (XML vs HTML), `NseCorporateResults` exposes them
+as two separate, explicitly-named methods (`download_xbrl_raw`,
+`download_result_html_raw`) rather than one URL-agnostic downloader, even
+though the underlying fetch mechanics are identical (same host, no cookie
+needed for either, confirmed live) - the separate names make it obvious
+which era of filing a caller is meant to use each one for.

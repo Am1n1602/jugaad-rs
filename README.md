@@ -29,12 +29,33 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
+| Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
 
 Bhavcopy and F&O bhavcopy both automatically pick the right format for the date requested - NSE changed both formats on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
+
+`NseCorporateResults` only supports the `equities` and `sme` segments - confirmed live, NSE's `insurance` and `reitsinvits` segments return a completely different, incompatible response shape through the same endpoint (not a documentation gap, a real schema difference), and `debt` returned no data in testing. See [`docs/nse-findings.md`](docs/nse-findings.md#corporates-financial-results-returns-a-genuinely-different-schema-per-segment) for the full breakdown.
 
 All the live/quote endpoints above were built and verified while NSE's market was closed. They work correctly for a closed market, but some intraday-only behavior (e.g. whether `market-turnover`'s same-day figures populate, whether order book depth actually has bid/ask quotes, whether snapshot values move) hasn't been confirmed against a real trading session yet - see [`docs/nse-findings.md`](docs/nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed) for what specifically still needs a spot-check during NSE's trading hours (9:15-15:30 IST, Monday-Friday).
 
 Per-symbol live quotes and option chains are **not** behind Akamai bot detection, contrary to what an earlier version of this README claimed - NSE had just moved those endpoints to different URLs than the ones first tried here. See [`docs/nse-findings.md`](docs/nse-findings.md) for the full story.
+
+## What this adds beyond jugaad-data
+
+**Data jugaad-data doesn't have at all:**
+- **Financial-results filings + XBRL/HTML download** (`NseCorporateResults`) - jugaad-data's `NSELive` wraps the newer SEBI Integrated Filing framework (`corporate_integrated_filing`), but not the older Regulation 33 filing type this crate covers, which is the only source for machine-readable financials before that framework existed (roughly FY2024-25). Company financials going back to FY2012-13 (for TCS; likely similar for other long-listed companies) aren't reachable through jugaad-data at all.
+
+**Real correctness issues avoided or caught**
+- **A live date bug jugaad-data actually has.** NSE's stock-history API returns two date fields for the same row - `mTIMESTAMP` (correct) and `CH_TIMESTAMP` (a UTC-shifted timestamp that lands on the wrong calendar day if read directly). jugaad-data uses `CH_TIMESTAMP`; this crate uses `mTIMESTAMP` instead, confirmed live.
+- **Type-safety that makes a documented real-world mistake impossible to write.** Financial filings mark whether figures are consolidated via a string field - `"Consolidated"` or `"Non-Consolidated"`. A plain substring check for `"consolidated"` matches inside `"Non-Consolidated"` too. jugaad-data hands this back as an untyped string either way; this crate models it (and the equivalent audited/not-audited field) as enums, so that specific mistake can't be written at all.
+- **NSE's own data is inconsistently typed, and this crate surfaces that immediately instead of silently absorbing it.** Confirmed live: the same numeric field (open interest, on F&O contracts) comes back as a JSON integer for some contracts and a JSON float for others in the identical response. A dynamically-typed client just accepts either silently; this crate's strict deserialization caught the inconsistency immediately during testing.
+- **A silent multi-month ordering bug, caught by testing against real exported output.** Every history endpoint that splits a long date range into per-month chunks was concatenating those chunks assuming NSE returns each one oldest-first - confirmed live that NSE actually returns each chunk newest-first, which without a fix scrambles a multi-month CSV into a "sawtooth" (descending within each month, ascending month to month) rather than one consistent order.
+
+**Structural**
+- `unsafe_code = "forbid"` at the workspace level - a checkable guarantee, enforced by the compiler on every build.
+- A running, dated log of every undocumented NSE quirk found ([`docs/nse-findings.md`](docs/nse-findings.md)) - the endpoint migrations, date-format traps, and schema-per-segment differences above are all recorded there with how they were confirmed.
+- A single static binary (`cargo build --release`) as an alternative to the library - no interpreter or `pip install` needed to just download data.
+
+None of this makes jugaad-rs a strict superset yet - see Pending below for what jugaad-data still covers that this doesn't.
 
 ## Pending
 
@@ -61,11 +82,12 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (25 commands
+Run `jugaad --help` for the full, always-current command list (28 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
 history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
-market status/index snapshot/turnover/F&O/block deals, and live per-symbol
-quotes/option chains). A few representative examples:
+market status/index snapshot/turnover/F&O/block deals, live per-symbol
+quotes/option chains, and financial-results filings). A few representative
+examples:
 
 ```bash
 # Whole-market bhavcopy for one day

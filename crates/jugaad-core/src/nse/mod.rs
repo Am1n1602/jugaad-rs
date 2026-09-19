@@ -1,4 +1,5 @@
 pub mod archives;
+pub mod corporate_results;
 pub mod daily_reports;
 mod dates;
 pub mod history;
@@ -7,6 +8,9 @@ pub mod live;
 pub mod quote;
 
 pub use archives::NseArchives;
+pub use corporate_results::{
+    AuditStatus, ConsolidationBasis, FinancialResultRow, NseCorporateResults, ResultPeriod,
+};
 pub use daily_reports::{NseDailyReports, ReportDate, ReportSummary};
 pub use history::{DerivativeHistoryRow, Instrument, NseHistory, OptionType, StockHistoryRow};
 pub use index::{IndexHistoryRow, IndexPeRow, IndexTriRow, NseIndexHistory};
