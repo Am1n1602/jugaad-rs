@@ -630,3 +630,17 @@ async fn financial_results_raw_deserializes_consolidation_basis_correctly() {
             .any(|r| r.consolidated == ConsolidationBasis::NonConsolidated)
     );
 }
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn eq_derivative_turnover_raw_returns_both_leaderboards() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.eq_derivative_turnover_raw().await.unwrap();
+
+    assert!(rows.iter().any(|r| r.ranking == "value"));
+    assert!(rows.iter().any(|r| r.ranking == "volume"));
+    assert!(
+        rows.iter()
+            .all(|r| r.ranking == "value" || r.ranking == "volume")
+    );
+}

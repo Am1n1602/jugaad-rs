@@ -430,7 +430,11 @@ where
     raw.trim().parse().map_err(serde::de::Error::custom)
 }
 
-fn deserialize_lenient_u64<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
+// Also used by `NseLiveMarket::eq_derivative_turnover_raw` in live.rs -
+// count-like fields on NSE's derivatives endpoints have repeatedly shown
+// up as JSON floats for some contracts and plain integers for others
+// within the same response.
+pub(super) fn deserialize_lenient_u64<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

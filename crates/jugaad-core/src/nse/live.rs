@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
-use super::quote::NEXTAPI_URL;
+use super::quote::{NEXTAPI_URL, deserialize_lenient_u64};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
@@ -391,6 +391,112 @@ struct BlockDealSessionResponse {
     data: RawBlockDealData,
 }
 
+/// One F&O contract's live turnover snapshot, from either of NSE's two
+/// top-20 leaderboards (`ranking`: `"value"` - ranked by premium
+/// turnover, or `"volume"` - ranked by contracts traded). NSE returns
+/// both leaderboards in one response; this crate flattens them into one
+/// `Vec` tagged by `ranking`, matching the one-row-per-record convention
+/// used elsewhere in this crate (see `BlockDealRow`).
+#[derive(Debug, Serialize)]
+pub struct EqDerivativeTurnoverRow {
+    pub ranking: String,
+    pub underlying: String,
+    pub identifier: String,
+    pub instrument_type: String,
+    pub instrument: String,
+    pub expiry: NaiveDate,
+    // "Call"/"Put"/"-" - confirmed live, a different vocabulary than the
+    // "CE"/"PE"/"XX" used by every other option_type field in this crate
+    // (see DerivativeHistoryRow/LiveFoRow/DerivativeQuoteRow) - kept as a
+    // raw string rather than forced into the shared `OptionType` enum,
+    // which only models Call/Put and has no "not an option" sentinel.
+    pub option_type: String,
+    pub strike_price: f64,
+    pub last_price: f64,
+    pub percent_change: f64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub contracts_traded: u64,
+    pub total_turnover: f64,
+    pub premium_turnover: f64,
+    pub open_interest: u64,
+    pub underlying_value: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawEqDerivativeTurnover {
+    underlying: String,
+    identifier: String,
+    #[serde(rename = "instrumentType")]
+    instrument_type: String,
+    instrument: String,
+    #[serde(rename = "expiryDate", deserialize_with = "deserialize_nse_date")]
+    expiry: NaiveDate,
+    #[serde(rename = "optionType")]
+    option_type: String,
+    #[serde(rename = "strikePrice")]
+    strike_price: f64,
+    #[serde(rename = "lastPrice")]
+    last_price: f64,
+    #[serde(rename = "pChange")]
+    percent_change: f64,
+    #[serde(rename = "openPrice")]
+    open: f64,
+    #[serde(rename = "highPrice")]
+    high: f64,
+    #[serde(rename = "lowPrice")]
+    low: f64,
+    // Confirmed live: count-like fields on NSE's derivatives endpoints
+    // have repeatedly shown up as JSON floats for some contracts and
+    // plain integers for others within the same response - see the
+    // identical issue documented for DerivativeQuoteRow in quote.rs.
+    #[serde(
+        rename = "numberOfContractsTraded",
+        deserialize_with = "deserialize_lenient_u64"
+    )]
+    contracts_traded: u64,
+    #[serde(rename = "totalTurnover")]
+    total_turnover: f64,
+    #[serde(rename = "premiumTurnover")]
+    premium_turnover: f64,
+    #[serde(rename = "openInterest", deserialize_with = "deserialize_lenient_u64")]
+    open_interest: u64,
+    #[serde(rename = "underlyingValue")]
+    underlying_value: f64,
+}
+
+impl RawEqDerivativeTurnover {
+    fn into_row(self, ranking: &str) -> EqDerivativeTurnoverRow {
+        EqDerivativeTurnoverRow {
+            ranking: ranking.to_string(),
+            underlying: self.underlying,
+            identifier: self.identifier,
+            instrument_type: self.instrument_type,
+            instrument: self.instrument,
+            expiry: self.expiry,
+            option_type: self.option_type,
+            strike_price: self.strike_price,
+            last_price: self.last_price,
+            percent_change: self.percent_change,
+            open: self.open,
+            high: self.high,
+            low: self.low,
+            contracts_traded: self.contracts_traded,
+            total_turnover: self.total_turnover,
+            premium_turnover: self.premium_turnover,
+            open_interest: self.open_interest,
+            underlying_value: self.underlying_value,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct EqDerivativeTurnoverResponse {
+    value: Vec<RawEqDerivativeTurnover>,
+    volume: Vec<RawEqDerivativeTurnover>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NseLiveMarket {
     client: Client,
@@ -584,6 +690,50 @@ impl NseLiveMarket {
     /// overwrites.
     pub async fn block_deal_session_csv(&self, path: &Path) -> Result<PathBuf> {
         let rows = self.block_deal_session_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches NSE's two top-20 F&O turnover leaderboards (by premium
+    /// turnover value and by contracts traded), flattened into one `Vec`
+    /// tagged by `ranking`. Hardcodes `index=allcontracts` - the only
+    /// value confirmed live and the default Python's `eq_derivative_turnover`
+    /// uses; other values aren't verified, so no parameter is exposed here
+    /// rather than guessing at what else might be valid.
+    pub async fn eq_derivative_turnover_raw(&self) -> Result<Vec<EqDerivativeTurnoverRow>> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/api/equity-stock"))
+            .query(&[("index", "allcontracts")])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: EqDerivativeTurnoverResponse = response.json().await.map_err(|e| {
+            Error::Parse(format!(
+                "could not parse equity derivative turnover response: {e}"
+            ))
+        })?;
+
+        let mut rows: Vec<EqDerivativeTurnoverRow> = parsed
+            .value
+            .into_iter()
+            .map(|raw| raw.into_row("value"))
+            .collect();
+        rows.extend(parsed.volume.into_iter().map(|raw| raw.into_row("volume")));
+        Ok(rows)
+    }
+
+    /// Fetches the turnover leaderboards the same way as
+    /// `eq_derivative_turnover_raw`, then writes them as a CSV file to
+    /// `path` exactly - see `market_status_csv` for why this takes a full
+    /// file path and always overwrites.
+    pub async fn eq_derivative_turnover_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.eq_derivative_turnover_raw().await?;
         write_csv(&rows, path)
     }
 }
@@ -864,6 +1014,87 @@ mod tests {
         assert_eq!(
             header,
             "session,identifier,symbol,series,market_type,change,percent_change,last_price,open,day_high,day_low,previous_close,average_price,total_traded_volume,total_traded_value,total_buy_quantity,total_sell_quantity,status,ex_date,purpose,last_update_time"
+        );
+    }
+
+    // Real response captured from NSE's equity-stock API
+    // (index=allcontracts), trimmed to one row per leaderboard. Note
+    // "Call"/"Put" (not "CE"/"PE") for option_type.
+    const SAMPLE_EQ_DERIVATIVE_TURNOVER: &str = r#"{"value":[
+        {"underlying":"NIFTY","identifier":"OPTIDXNIFTY22-09-2026CE23300.00","instrumentType":"OPTIDX",
+         "instrument":"Index Options","expiryDate":"22-Sep-2026","optionType":"Call","strikePrice":23300,
+         "lastPrice":117.5,"pChange":-2.5300705101617584,"openPrice":127.2,"highPrice":149,"lowPrice":99.15,
+         "numberOfContractsTraded":5628311,"totalTurnover":438496.08169900003,
+         "premiumTurnover":8567926617669.9,"openInterest":114149,"underlyingValue":23346.4}
+    ],"val_timestamp":"18-Sep-2026 15:40:00","volume":[
+        {"underlying":"HDFCBANK","identifier":"FUTSTKHDFCBANK29-09-2026XX0.00","instrumentType":"FUTSTK",
+         "instrument":"Stock Futures","expiryDate":"29-Sep-2026","optionType":"-","strikePrice":0,
+         "lastPrice":731.45,"pChange":2.2220669415135212,"openPrice":717.5,"highPrice":734.9,"lowPrice":716.7,
+         "numberOfContractsTraded":56174,"totalTurnover":266279.08437,"premiumTurnover":26627908437,
+         "openInterest":517811,"underlyingValue":731}
+    ],"vol_timestamp":"18-Sep-2026 15:40:00"}"#;
+
+    #[test]
+    fn deserializes_real_eq_derivative_turnover_shape() {
+        let parsed: EqDerivativeTurnoverResponse =
+            serde_json::from_str(SAMPLE_EQ_DERIVATIVE_TURNOVER).unwrap();
+
+        assert_eq!(parsed.value.len(), 1);
+        assert_eq!(parsed.value[0].option_type, "Call");
+        assert_eq!(parsed.value[0].expiry, date(2026, 9, 22));
+        assert_eq!(parsed.volume[0].option_type, "-");
+    }
+
+    #[test]
+    fn eq_derivative_turnover_rows_are_tagged_with_their_ranking() {
+        let parsed: EqDerivativeTurnoverResponse =
+            serde_json::from_str(SAMPLE_EQ_DERIVATIVE_TURNOVER).unwrap();
+
+        let mut rows: Vec<EqDerivativeTurnoverRow> = parsed
+            .value
+            .into_iter()
+            .map(|raw| raw.into_row("value"))
+            .collect();
+        rows.extend(parsed.volume.into_iter().map(|raw| raw.into_row("volume")));
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].ranking, "value");
+        assert_eq!(rows[0].underlying, "NIFTY");
+        assert_eq!(rows[1].ranking, "volume");
+        assert_eq!(rows[1].underlying, "HDFCBANK");
+    }
+
+    // Confirmed live: contractsTraded/openInterest can be JSON floats for
+    // some contracts within the same response - same issue as
+    // DerivativeQuoteRow in quote.rs.
+    #[test]
+    fn eq_derivative_turnover_accepts_float_formatted_counts() {
+        const FLOAT_COUNTS: &str = r#"{"value":[
+            {"underlying":"NIFTY","identifier":"X","instrumentType":"OPTIDX","instrument":"Index Options",
+             "expiryDate":"22-Sep-2026","optionType":"Call","strikePrice":23300,"lastPrice":0,"pChange":0,
+             "openPrice":0,"highPrice":0,"lowPrice":0,"numberOfContractsTraded":5628311.0,
+             "totalTurnover":0,"premiumTurnover":0,"openInterest":114149.0,"underlyingValue":0}
+        ],"val_timestamp":"","volume":[],"vol_timestamp":""}"#;
+        let parsed: EqDerivativeTurnoverResponse = serde_json::from_str(FLOAT_COUNTS).unwrap();
+
+        assert_eq!(parsed.value[0].contracts_traded, 5_628_311);
+        assert_eq!(parsed.value[0].open_interest, 114_149);
+    }
+
+    #[test]
+    fn eq_derivative_turnover_serializing_uses_clean_field_names() {
+        let parsed: EqDerivativeTurnoverResponse =
+            serde_json::from_str(SAMPLE_EQ_DERIVATIVE_TURNOVER).unwrap();
+        let row = parsed.value.into_iter().next().unwrap().into_row("value");
+
+        let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
+        writer.serialize(&row).unwrap();
+        let csv_text = String::from_utf8(writer.into_inner().unwrap()).unwrap();
+
+        let header = csv_text.lines().next().unwrap();
+        assert_eq!(
+            header,
+            "ranking,underlying,identifier,instrument_type,instrument,expiry,option_type,strike_price,last_price,percent_change,open,high,low,contracts_traded,total_turnover,premium_turnover,open_interest,underlying_value"
         );
     }
 }

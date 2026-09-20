@@ -663,3 +663,37 @@ as two separate, explicitly-named methods (`download_xbrl_raw`,
 though the underlying fetch mechanics are identical (same host, no cookie
 needed for either, confirmed live) - the separate names make it obvious
 which era of filing a caller is meant to use each one for.
+
+## `eq_derivative_turnover`: two top-20 leaderboards, one response, no cookie
+
+`GET /api/equity-stock?index=allcontracts` (Python: `NSELive.eq_derivative_turnover`)
+returns two parallel top-20 lists in one response - `value` (ranked by
+premium turnover) and `volume` (ranked by contracts traded) - under top-level
+keys `value`/`volume` (not the usual `data` envelope seen elsewhere in this
+crate), plus `val_timestamp`/`vol_timestamp` companions that aren't modeled
+(response-level metadata, not per-row data). The same contract can and does
+appear in both lists. Confirmed live: no cookie warm-up needed, same as
+every other `NseLiveMarket` endpoint.
+
+`index=allcontracts` is the only value confirmed live; Python's method
+signature defaults to it (`type="allcontracts"`) but allows overriding, so
+other values may exist - untested here, and not exposed as a parameter
+rather than guessing.
+
+Two things repeat findings already on record for very similar endpoints,
+confirmed again here rather than assumed to carry over:
+
+- **`optionType` uses a third vocabulary.** `"Call"`/`"Put"`/`"-"` here,
+  vs. `"CE"`/`"PE"`/`"XX"` everywhere else in this crate
+  (`DerivativeHistoryRow`, `LiveFoRow`, `DerivativeQuoteRow`). Kept as a
+  raw string, not forced into the shared `OptionType` enum (which has no
+  "not an option" variant).
+- **Count fields can be JSON floats.** `numberOfContractsTraded` and
+  `openInterest` showed the same int-vs-float inconsistency already
+  documented for `DerivativeQuoteRow` in `quote.rs` - reused the same
+  `deserialize_lenient_u64` helper (made `pub(super)` to share it) rather
+  than duplicating the fix.
+
+Unlike `LiveFoRow`'s three redundant turnover fields, `totalTurnover` and
+`premiumTurnover` here are genuinely different values (confirmed by
+comparing magnitudes across several rows) - both kept.

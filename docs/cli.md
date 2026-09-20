@@ -34,6 +34,7 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`market-turnover`](#market-turnover) - download market-wide turnover by segment
 - [`live-fo`](#live-fo) - download a live snapshot of NIFTY index futures/options
 - [`block-deal-session`](#block-deal-session) - download today's block deals (pre-open and mid-day sessions)
+- [`eq-derivative-turnover`](#eq-derivative-turnover) - download NSE's top-20 F&O turnover leaderboards
 - [`stock-quote`](#stock-quote) - download a stock's live quote, including order book depth
 - [`derivative-quote`](#derivative-quote) - download every F&O contract for a symbol
 - [`index-quote`](#index-quote) - download a single index's live value, volume and turnover
@@ -884,6 +885,53 @@ this command flattens them into one CSV tagged by this column.
   in the output in case they populate for a deal tied to a corporate
   action. See
   [nse-findings.md](nse-findings.md#block-deals-two-separate-session-lists-flattened-into-one-tagged-vec).
+
+---
+
+## `eq-derivative-turnover`
+
+Downloads NSE's two top-20 F&O turnover leaderboards - the 20 contracts
+with the highest premium turnover, and the 20 with the highest number of
+contracts traded - and saves them as a CSV, one row per contract per
+leaderboard (the same contract can appear in both).
+
+```bash
+jugaad eq-derivative-turnover [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/eq_derivative_turnover.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad eq-derivative-turnover
+```
+
+```
+Saved equity derivative turnover to data/nse/eq_derivative_turnover.csv
+```
+
+### CSV columns
+
+`ranking, underlying, identifier, instrument_type, instrument, expiry, option_type, strike_price, last_price, percent_change, open, high, low, contracts_traded, total_turnover, premium_turnover, open_interest, underlying_value`
+
+`ranking` is `"value"` (ranked by premium turnover) or `"volume"` (ranked
+by contracts traded) - NSE returns these as two separate top-20 lists;
+this command flattens them into one CSV tagged by this column.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- `option_type` is `"Call"`/`"Put"`/`"-"` here - a different vocabulary
+  than the `"CE"`/`"PE"`/`"XX"` used by `derivatives`/`live-fo`/
+  `derivative-quote`. See
+  [nse-findings.md](nse-findings.md#eq_derivative_turnover-two-top-20-leaderboards-one-response-no-cookie).
+- Takes no arguments - always covers `index=allcontracts`, the only value
+  confirmed live, though NSE's API may accept others (untested).
 
 ---
 

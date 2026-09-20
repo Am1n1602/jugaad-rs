@@ -1,6 +1,7 @@
 //! Exercises the live-market endpoints: market open/closed status, a
 //! snapshot of every index, market-wide turnover, a live NIFTY
-//! futures/options snapshot, and today's block deals.
+//! futures/options snapshot, today's block deals, and the F&O turnover
+//! leaderboards.
 //!
 //!     cargo run -p jugaad-core --example live_market
 
@@ -54,6 +55,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  [{}] {} last_price={} volume={}",
             row.session, row.symbol, row.last_price, row.total_traded_volume
+        );
+    }
+
+    let turnover_leaders = live.eq_derivative_turnover_raw().await?;
+    println!(
+        "\nF&O turnover leaderboard rows: {}",
+        turnover_leaders.len()
+    );
+    for row in turnover_leaders.iter().take(3) {
+        println!(
+            "  [{}] {} {} last_price={}",
+            row.ranking, row.underlying, row.instrument, row.last_price
         );
     }
 

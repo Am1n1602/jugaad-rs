@@ -299,6 +299,12 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/block_deal_session.csv")]
         output: PathBuf,
     },
+    /// Download NSE's top-20 F&O turnover leaderboards (by value and by volume)
+    EqDerivativeTurnover {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/eq_derivative_turnover.csv")]
+        output: PathBuf,
+    },
     /// Download a stock's live quote (price, order book depth, volume)
     StockQuote {
         /// Stock symbol, e.g. SBIN or TCS
@@ -579,6 +585,14 @@ async fn main() -> anyhow::Result<()> {
             let live = NseLiveMarket::new()?;
             let path = live.block_deal_session_csv(&output).await?;
             println!("Saved block deal session to {}", path.display());
+        }
+        Command::EqDerivativeTurnover { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.eq_derivative_turnover_csv(&output).await?;
+            println!("Saved equity derivative turnover to {}", path.display());
         }
         Command::StockQuote { symbol, output } => {
             std::fs::create_dir_all(&output)?;

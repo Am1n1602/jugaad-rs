@@ -24,6 +24,7 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Live market-wide turnover by segment | `NseLiveMarket::market_turnover_raw`/`market_turnover_csv` |
 | Live NIFTY futures/options snapshot | `NseLiveMarket::live_fo_snapshot_raw`/`live_fo_snapshot_csv` |
 | Today's block deals (pre-open and mid-day sessions) | `NseLiveMarket::block_deal_session_raw`/`block_deal_session_csv` |
+| F&O turnover leaderboards (top-20 by value and by volume) | `NseLiveMarket::eq_derivative_turnover_raw`/`eq_derivative_turnover_csv` |
 | Live stock quote (price, order book depth, volume) | `NseQuote::stock_quote_raw`/`stock_quote_csv` |
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
@@ -60,7 +61,7 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 ## Pending
 
 - **A `dataframe`/`polars` Cargo feature** - not started; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source. An earlier, empty placeholder for this feature flag was removed as dead config - it'll be added back in the same change that actually implements the conversions
-- **`chart_data`/`tick_data`, `eq_derivative_turnover`, `top_stocks`** (top gainers/losers/most-active) - confirmed reachable live, not yet designed/built. `chart_data`/`tick_data` return an empty shell even via Python's own library while the market's closed, so their real shape is still unverified.
+- **`chart_data`/`tick_data`, `top_stocks`** (top gainers/losers/most-active) - confirmed reachable live, not yet designed/built. `chart_data`/`tick_data` return an empty shell even via Python's own library while the market's closed, so their real shape is still unverified.
 
 ## Requirements
 
@@ -82,7 +83,7 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (28 commands
+Run `jugaad --help` for the full, always-current command list (29 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
 history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
 market status/index snapshot/turnover/F&O/block deals, live per-symbol
