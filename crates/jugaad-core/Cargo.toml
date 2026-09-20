@@ -9,12 +9,6 @@ license.workspace = true
 [lints]
 workspace = true
 
-[features]
-default = []
-# Enables DataFrame conversions. Add polars with
-# `cargo add polars -p jugaad-core --optional` before switching this on.
-dataframe = []
-
 [dependencies]
 tokio = { workspace = true, features = ["sync"] }
 reqwest = { workspace = true }
@@ -24,7 +18,6 @@ chrono = { workspace = true }
 csv = { workspace = true }
 zip = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

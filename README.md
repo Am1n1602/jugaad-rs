@@ -59,7 +59,7 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 
 ## Pending
 
-- **The `dataframe`/`polars` Cargo feature** - declared in `Cargo.toml` but unused; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source
+- **A `dataframe`/`polars` Cargo feature** - not started; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source. An earlier, empty placeholder for this feature flag was removed as dead config - it'll be added back in the same change that actually implements the conversions
 - **`chart_data`/`tick_data`, `eq_derivative_turnover`, `top_stocks`** (top gainers/losers/most-active) - confirmed reachable live, not yet designed/built. `chart_data`/`tick_data` return an empty shell even via Python's own library while the market's closed, so their real shape is still unverified.
 
 ## Requirements

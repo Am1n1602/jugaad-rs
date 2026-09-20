@@ -21,8 +21,6 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 thiserror = "2"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Lints applied to every crate in the workspace.
 [workspace.lints.rust]

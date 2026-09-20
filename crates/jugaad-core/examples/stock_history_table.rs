@@ -14,9 +14,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let to = NaiveDate::from_ymd_opt(2024, 8, 31).ok_or("invalid date")?;
     let mut rows = history.stock_history_raw("SBIN", from, to, "EQ").await?;
 
-    // Rows come back grouped by month chunk (each chunk newest-first
-    // internally), not globally sorted - sort by date so the table below
-    // reads chronologically from oldest to newest.
+    // stock_history_raw already returns rows newest-first; re-sort
+    // ascending so the table below reads chronologically from oldest to
+    // newest.
     rows.sort_by_key(|row| row.date);
 
     println!("{:<12} {:>10} {:>12}", "DATE", "CLOSE", "VOLUME");
