@@ -13,6 +13,14 @@ const BASE_URL: &str = "https://www.nseindia.com";
 
 /// One market segment's live open/closed status (Capital Market, Currency,
 /// Commodity, Debt).
+///
+/// Confirmed live: Currency/Commodity/Debt's own `last`/`change` stay
+/// `None` even while `status` reports `"Open"` - NSE just doesn't
+/// populate them through this endpoint. Currency is the one exception in
+/// practice: a separate row with `market: "currencyfuture"` (real USDINR
+/// future data) shows up alongside it in the same response and comes
+/// back as its own entry here - Commodity and Debt have no such
+/// alternate row anywhere in this endpoint.
 #[derive(Debug, Serialize)]
 pub struct MarketSegmentStatus {
     pub market: String,

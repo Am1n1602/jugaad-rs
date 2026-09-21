@@ -19,8 +19,9 @@ pub use live::{
     MarketTurnoverRow, NseLiveMarket,
 };
 pub use quote::{
-    CurrencyOptionChainRow, CurrencyOptionLeg, DerivativeQuoteRow, IndexQuote, NseQuote,
-    OptionChainKind, OptionChainRow, OptionLeg, OrderBook, OrderBookLevel, StockQuote,
+    ChartData, ChartDataPoint, ChartPeriod, CurrencyOptionChainRow, CurrencyOptionLeg,
+    DerivativeQuoteRow, IndexQuote, NseQuote, OptionChainKind, OptionChainRow, OptionLeg,
+    OrderBook, OrderBookLevel, StockQuote,
 };
 
 // NSE blocks requests that don't look like they came from a browser.

@@ -28,6 +28,7 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Live stock quote (price, order book depth, volume) | `NseQuote::stock_quote_raw`/`stock_quote_csv` |
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
+| Stock intraday/historical price chart | `NseQuote::stock_chart_data_raw` |
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
 | Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
@@ -36,7 +37,7 @@ Bhavcopy and F&O bhavcopy both automatically pick the right format for the date 
 
 `NseCorporateResults` only supports the `equities` and `sme` segments - confirmed live, NSE's `insurance` and `reitsinvits` segments return a completely different, incompatible response shape through the same endpoint (not a documentation gap, a real schema difference), and `debt` returned no data in testing. See [`docs/nse-findings.md`](docs/nse-findings.md#corporates-financial-results-returns-a-genuinely-different-schema-per-segment) for the full breakdown.
 
-All the live/quote endpoints above were built and verified while NSE's market was closed. They work correctly for a closed market, but some intraday-only behavior (e.g. whether `market-turnover`'s same-day figures populate, whether order book depth actually has bid/ask quotes, whether snapshot values move) hasn't been confirmed against a real trading session yet - see [`docs/nse-findings.md`](docs/nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed) for what specifically still needs a spot-check during NSE's trading hours (9:15-15:30 IST, Monday-Friday).
+The live/quote endpoints above were built while NSE's market was closed, then spot-checked again live with the market genuinely open (2026-09-21) - order book depth and index values do populate/move as expected; `market-turnover`'s same-day figures and the Currency/Commodity/Debt segments' snapshot values turned out to just never populate through these endpoints, open market or not, which is now confirmed rather than assumed. See [`docs/nse-findings.md`](docs/nse-findings.md#the-market-hours-retest-done-live-on-2026-09-21-nse-genuinely-open) for the full rundown.
 
 Per-symbol live quotes and option chains are **not** behind Akamai bot detection, contrary to what an earlier version of this README claimed - NSE had just moved those endpoints to different URLs than the ones first tried here. See [`docs/nse-findings.md`](docs/nse-findings.md) for the full story.
 
@@ -47,6 +48,7 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 
 **Real correctness issues avoided or caught**
 - **A live date bug jugaad-data actually has.** NSE's stock-history API returns two date fields for the same row - `mTIMESTAMP` (correct) and `CH_TIMESTAMP` (a UTC-shifted timestamp that lands on the wrong calendar day if read directly). jugaad-data uses `CH_TIMESTAMP`; this crate uses `mTIMESTAMP` instead, confirmed live.
+- **The same UTC-shift bug, found again in a second endpoint.** The stock chart-data endpoint's per-point epoch timestamps have the identical problem as `CH_TIMESTAMP` above - built from IST wall-clock digits but labeled as UTC. Caught by comparing a live point's timestamp against a same-moment live quote's `last_update_time` (genuine IST) and finding a ~5:30 gap; corrected before being exposed publicly, so this crate never emits the wrong instant in the first place.
 - **Type-safety that makes a documented real-world mistake impossible to write.** Financial filings mark whether figures are consolidated via a string field - `"Consolidated"` or `"Non-Consolidated"`. A plain substring check for `"consolidated"` matches inside `"Non-Consolidated"` too. jugaad-data hands this back as an untyped string either way; this crate models it (and the equivalent audited/not-audited field) as enums, so that specific mistake can't be written at all.
 - **NSE's own data is inconsistently typed, and this crate surfaces that immediately instead of silently absorbing it.** Confirmed live: the same numeric field (open interest, on F&O contracts) comes back as a JSON integer for some contracts and a JSON float for others in the identical response. A dynamically-typed client just accepts either silently; this crate's strict deserialization caught the inconsistency immediately during testing.
 - **A silent multi-month ordering bug, caught by testing against real exported output.** Every history endpoint that splits a long date range into per-month chunks was concatenating those chunks assuming NSE returns each one oldest-first - confirmed live that NSE actually returns each chunk newest-first, which without a fix scrambles a multi-month CSV into a "sawtooth" (descending within each month, ascending month to month) rather than one consistent order.
@@ -61,7 +63,7 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 ## Pending
 
 - **A `dataframe`/`polars` Cargo feature** - not started; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source. An earlier, empty placeholder for this feature flag was removed as dead config - it'll be added back in the same change that actually implements the conversions
-- **`chart_data`/`tick_data`, `top_stocks`** (top gainers/losers/most-active) - confirmed reachable live, not yet designed/built. `chart_data`/`tick_data` return an empty shell even via Python's own library while the market's closed, so their real shape is still unverified.
+- **`top_stocks`** (top gainers/losers/most-active) - confirmed reachable live via the same NextApi pattern that fixed `stock_chart_data_raw`, not yet designed/built; only one of its 8 sub-lists has been shape-checked so far.
 
 ## Requirements
 

@@ -353,8 +353,9 @@ reading that library's actual current source
   expiry is normally looked up first via
   `GET /api/option-chain-contract-info?symbol=NIFTY`. Currency option
   chains use a separate, still-alive `GET /api/option-chain-currency`.
-- **Chart/tick data** (`chart_data`/`tick_data`):
-  `GET /api/chart-databyindex?index=SBINEQN`.
+- **Chart/tick data** (`chart_data`/`tick_data`): the old
+  `GET /api/chart-databyindex?index=SBINEQN` documented here is also dead
+  (see the 2026-09-21 section below for the real, working replacement).
 - **Market-wide derivative turnover** (`eq_derivative_turnover`):
   `GET /api/equity-stock?index=allcontracts` - a confusingly generic path
   name for what it actually returns.
@@ -697,3 +698,132 @@ confirmed again here rather than assumed to carry over:
 Unlike `LiveFoRow`'s three redundant turnover fields, `totalTurnover` and
 `premiumTurnover` here are genuinely different values (confirmed by
 comparing magnitudes across several rows) - both kept.
+
+## The market-hours retest, done live on 2026-09-21 (NSE genuinely open)
+
+Every earlier entry in this doc that said "verified only while the market
+was closed" got checked again with the market actually open (confirmed via
+`marketStatus`: Capital Market `Open`, 21-Sep-2026 10:22 IST). Results,
+one by one:
+
+- **`chart_data`/`tick_data` (Python: `NSELive.chart_data`) is not gated
+  by market hours at all - that hypothesis was wrong.** Confirmed with
+  the market genuinely open, via both plain curl and Python's own current
+  `jugaad-data` library: `GET /api/chart-databyindex` still returns the
+  identical empty placeholder (`{"closePrice":0,"grapthData":[],
+  "identifier":null,"name":null}`) for both an equity (`SBIN`) and an
+  index (`NIFTY 50`, `indices=true`). Since Python's real library gets
+  the same empty result live, this isn't a jugaad-rs bug or a timing
+  issue - the endpoint itself appears broken or needs a parameter neither
+  client is sending. Root cause still unknown; not designable until it
+  is.
+- **`stock_quote_raw`'s order book depth does populate live - confirmed.**
+  SBIN's top-of-book during the open market: `buyPrice1: 993.8,
+  buyQuantity1: 1176, sellPrice1: 994, sellQuantity1: 11` - real resting
+  orders, not the all-zero placeholder seen every time this was tested
+  with the market closed.
+- **`market-turnover`'s `today` object stays empty even with the market
+  open.** Confirmed: `Equities.today` is still `{}` and `Total.today`
+  still has every field `null` during live trading, not just when
+  closed. This makes the earlier decision to drop `today` from
+  `MarketTurnoverRow` look even more correct than it did at the time -
+  it may simply never populate through this endpoint, closed market or
+  not.
+- **`marketState`'s Currency/Commodity/Debt segments still send empty
+  `last`/`variation` while `Open`.** Confirmed: all three segments
+  reported `marketStatus: "Open"` with `last`/`variation` still empty
+  strings. This isn't a closed-market artifact either - these three
+  segments apparently never carry a snapshot value through this
+  endpoint, matching Capital Market's numeric fields only ever actually
+  populating for Capital Market. **Update, same day:** Commodity and Debt
+  really do have no alternate source anywhere in this response - checked
+  every entry in `marketState` plus the top-level keys
+  (`marketcap`/`indicativenifty50`/`giftnifty`/`niftyusd`), nothing names
+  either segment again. Currency is different: `marketState` also
+  contains a `market: "currencyfuture"` row with a real `last` value
+  (e.g. `"95.8225"`, USDINR future) - and since it names a `market`, it
+  already survives `RawSegment::into_named` and comes back as its own
+  entry in `market_status_raw`'s `Vec<MarketSegmentStatus>` today, no
+  code change needed. A caller who wants live currency data just needs to
+  look for the `currencyfuture` entry instead of `Currency`'s own (always
+  empty) fields - now called out in the `live_market` example, which
+  prints `last`/`change` for every segment.
+- **`live_fo_snapshot_raw` still returns exactly 3 rows, all `FUTIDX`,
+  during live trading** - no NIFTY options appeared in this bucket even
+  with the market open, matching what was seen closed.
+- **`index_snapshot_raw`'s values do move intraday** - NIFTY 50's `last`
+  changed between the closed-market baseline (23346.4) and this
+  live-market check (23375.85), confirming the field reflects genuine
+  live movement rather than a frozen snapshot.
+
+Net effect: everything above was already handled correctly by this
+crate's design (the `today`/Currency-Commodity-Debt/live-fo behavior
+needed no code change, since the types already tolerate empty/absent
+values) - except `chart_data`/`tick_data`, which remains genuinely
+unsolved and is no longer attributed to market hours.
+
+## `chart_data`/`tick_data` resolved (2026-09-21): same root cause as the per-symbol quotes
+
+`chart-databyindex` really is permanently dead - but it turns out to be
+the same story as `stock_quote_raw`/`derivative_quote_raw` earlier in this
+doc: NSE moved chart data behind the NextApi endpoint too, and the
+currently-installed `jugaad-data` package (`jugaad_data/nse/live.py`) has
+already been updated with a method for it that the library's own
+`chart_data`/`tick_data` names never got pointed at:
+
+```python
+def symbol_chart_data(self, symbol, series="EQ", days="1D"):
+    return self._get_nextapi("getSymbolChartData", symbol=symbol + series + "N", days=days)
+```
+
+Confirmed live via curl with the market open (21-Sep-2026, ~10:40 IST):
+
+```
+GET /api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolChartData&symbol=SBINEQN&days=1D
+```
+
+returns real intraday data - `{"identifier":"SBINEQN","name":"SBIN",
+"grapthData":[[1789981259000,996,"PO","-0.2","-0.02"],...],"closePrice":996.2}`
+(`grapthData` is NSE's own misspelling, not a typo introduced here). This
+is now implemented as `NseQuote::stock_chart_data_raw(symbol, period)`.
+
+Additional findings while building it:
+
+- **`days` only accepts five values.** `1D`, `1W`, `1M`, `1Y` and `5Y` all
+  return real data - the other period buttons NSE's own chart shows
+  (`3M`, `6M`, `3Y`, `ALL`) return a 500 with
+  `"status":"NULL_POINTER"` (a raw Java `ResultSet.next()` NPE leaking
+  through), not a clean error or empty result. Modeled as an enum
+  (`ChartPeriod`) rather than a free-form string so a caller can't hit
+  this.
+- **Only `1D` populates `change`/`percent_change`.** Every other window
+  returns `null` for both on every point (e.g. `[1789689600000,996.2,
+  "NM",null,null]` for `days=1W`) - only daily closes, no intraday
+  change. `session` (`"PO"`/`"NM"`) stays populated in every window,
+  always `"NM"` outside `1D`.
+- **This is per-symbol only - index charts don't work through this
+  endpoint.** Tried `symbol=NIFTY 50`, `symbol=NIFTY 50N`, and the old
+  endpoint's `indices=true` flag; all three return
+  `{"error":"Unexpected end of JSON input"}` (NSE's backend itself failed
+  to produce valid JSON). `NseQuote::stock_chart_data_raw` is scoped to
+  stocks only until an index variant is found.
+- **An unknown symbol is a clean 404**, unlike the old endpoint's silent
+  empty placeholder - surfaces as `Error::NotFound`, matching
+  `stock_quote_raw`'s existing convention.
+- **Another `CH_TIMESTAMP`-shaped bug: each point's epoch is built from
+  IST digits, not a real UTC instant.** Confirmed by comparing a
+  freshly-fetched point's timestamp against `stock_quote_raw`'s
+  `last_update_time` (genuine IST) at the same moment: decoding the epoch
+  as UTC read exactly ~5:30 ahead of the real UTC clock - the wall-clock
+  *digits* were right, just labeled as the wrong timezone. Same root
+  cause as `mTIMESTAMP`/`CH_TIMESTAMP` in `dates.rs`, different endpoint.
+  `ChartDataPoint::timestamp` reads the UTC digits back out as the IST
+  value they actually represent (`ist_timestamp_from_millis` in
+  `quote.rs`) rather than trusting the instant.
+- **`tick_data` was never a separate endpoint** - Python's own
+  `tick_data` is just `return self.chart_data(symbol, indices)`, a plain
+  alias. Not modeled separately here.
+- **Bonus, not yet built:** the same NextApi pattern resolves `top_stocks`
+  too - `functionName=getTopTenStock` (no extra params) returned real
+  gainers/losers/most-active data live. Still pending design (see
+  README), but confirmed reachable the same way `chart_data` was.

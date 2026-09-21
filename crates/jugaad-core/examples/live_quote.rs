@@ -4,7 +4,7 @@
 //!
 //!     cargo run -p jugaad-core --example live_quote
 
-use jugaad_core::nse::{NseQuote, OptionChainKind};
+use jugaad_core::nse::{ChartPeriod, NseQuote, OptionChainKind};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,6 +22,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stock.order_book.levels[0].sell_price,
         stock.order_book.levels[0].sell_quantity
     );
+
+    let chart = quote
+        .stock_chart_data_raw("SBIN", ChartPeriod::OneDay)
+        .await?;
+    println!(
+        "\nSBIN intraday chart: {} points, close={}",
+        chart.points.len(),
+        chart.close_price
+    );
+    if let Some(point) = chart.points.last() {
+        println!(
+            "  latest: {} price={} session={}",
+            point.timestamp, point.price, point.session
+        );
+    }
 
     let fo_rows = quote.derivative_quote_raw("SBIN").await?;
     println!("\nSBIN F&O contracts: {}", fo_rows.len());

@@ -15,8 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Market status:");
     for segment in &segments {
         println!(
-            "  {}: {} ({})",
-            segment.market, segment.status, segment.status_message
+            "  {}: {} ({}) last={:?} change={:?}",
+            segment.market, segment.status, segment.status_message, segment.last, segment.change
         );
     }
 

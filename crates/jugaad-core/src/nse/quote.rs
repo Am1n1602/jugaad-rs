@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -448,6 +448,109 @@ where
     Ok(f64::deserialize(deserializer)?.round() as i64)
 }
 
+/// Which time window to fetch a stock's price chart for.
+///
+/// Confirmed live: NSE's `getSymbolChartData` NextApi function only
+/// accepts these five values - the other period buttons NSE's own chart
+/// shows (`"3M"`, `"6M"`, `"3Y"`, `"ALL"`) make the endpoint return a 500
+/// Java `NullPointerException` instead of data or a clean error, so this
+/// stays an enum rather than a free-form string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChartPeriod {
+    OneDay,
+    OneWeek,
+    OneMonth,
+    OneYear,
+    FiveYears,
+}
+
+impl ChartPeriod {
+    fn as_query_param(self) -> &'static str {
+        match self {
+            ChartPeriod::OneDay => "1D",
+            ChartPeriod::OneWeek => "1W",
+            ChartPeriod::OneMonth => "1M",
+            ChartPeriod::OneYear => "1Y",
+            ChartPeriod::FiveYears => "5Y",
+        }
+    }
+}
+
+/// One point on a stock's price chart.
+///
+/// `session`/`change`/`percent_change` are only meaningfully populated for
+/// `ChartPeriod::OneDay` - confirmed live, the weekly/monthly/yearly
+/// windows always report `session: "NM"` with `change`/`percent_change`
+/// as `None`.
+#[derive(Debug, Serialize)]
+pub struct ChartDataPoint {
+    // IST wall-clock time, not UTC - see `ist_timestamp_from_millis`.
+    pub timestamp: NaiveDateTime,
+    pub price: f64,
+    pub session: String,
+    pub change: Option<f64>,
+    pub percent_change: Option<f64>,
+}
+
+/// A stock's intraday or historical price chart -
+/// `NseQuote::stock_chart_data_raw`.
+#[derive(Debug, Serialize)]
+pub struct ChartData {
+    pub identifier: String,
+    pub name: String,
+    pub close_price: f64,
+    pub points: Vec<ChartDataPoint>,
+}
+
+/// One `grapthData` point, deserialized straight from its 5-element JSON
+/// array: `(timestamp_millis, price, session, change, percent_change)`.
+type RawChartDataPoint = (i64, f64, String, Option<String>, Option<String>);
+
+/// The raw shape NSE actually sends. `grapthData` is NSE's own misspelling
+/// of "graphData", confirmed live - kept as-is here since it's just the
+/// wire name, not the public field name.
+#[derive(Debug, Deserialize)]
+struct RawChartData {
+    identifier: String,
+    name: String,
+    #[serde(rename = "grapthData")]
+    graph_data: Vec<RawChartDataPoint>,
+    #[serde(rename = "closePrice")]
+    close_price: f64,
+}
+
+// Confirmed live by comparing a freshly-fetched point's timestamp against
+// `stock_quote_raw`'s `last_update_time` (genuine IST) at the same moment:
+// decoding the epoch as a real UTC instant read ~5:30 ahead of the actual
+// UTC clock - NSE built the epoch from IST wall-clock digits as if they
+// were UTC, the same root cause as the `CH_TIMESTAMP` bug documented in
+// `dates.rs`. This reads the UTC digits back out as the IST wall-clock
+// value they actually represent, rather than trusting the instant.
+fn ist_timestamp_from_millis(millis: i64) -> Option<NaiveDateTime> {
+    Some(DateTime::from_timestamp_millis(millis)?.naive_utc())
+}
+
+fn chart_data_point_from_tuple(row: RawChartDataPoint) -> Result<ChartDataPoint> {
+    let (millis, price, session, change, percent_change) = row;
+    let timestamp = ist_timestamp_from_millis(millis)
+        .ok_or_else(|| Error::Parse(format!("invalid chart data timestamp: {millis}")))?;
+    let change = change
+        .map(|s| s.parse::<f64>())
+        .transpose()
+        .map_err(|e| Error::Parse(format!("could not parse chart data change: {e}")))?;
+    let percent_change = percent_change
+        .map(|s| s.parse::<f64>())
+        .transpose()
+        .map_err(|e| Error::Parse(format!("could not parse chart data percent_change: {e}")))?;
+    Ok(ChartDataPoint {
+        timestamp,
+        price,
+        session,
+        change,
+        percent_change,
+    })
+}
+
 /// A single index's live value, volume and turnover.
 ///
 /// Distinct from `IndexSnapshotRow` (`NseLiveMarket::index_snapshot_raw`,
@@ -854,6 +957,57 @@ impl NseQuote {
         let csv_row = StockQuoteCsvRow::from(&quote);
         let path = dest.join(format!("{symbol}-quote.csv"));
         write_csv(&[csv_row], &path)
+    }
+
+    /// Fetches a stock's intraday or historical price chart. Replaces the
+    /// documented-dead `chart-databyindex` endpoint (see
+    /// `docs/nse-findings.md`) - confirmed live, this NextApi function is
+    /// the one NSE's own site actually calls today.
+    pub async fn stock_chart_data_raw(
+        &self,
+        symbol: &str,
+        period: ChartPeriod,
+    ) -> Result<ChartData> {
+        let identifier = format!("{symbol}EQN");
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[
+                ("functionName", "getSymbolChartData"),
+                ("symbol", identifier.as_str()),
+                ("days", period.as_query_param()),
+            ])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::NOT_FOUND => {
+                return Err(Error::NotFound(format!(
+                    "no chart data for symbol '{symbol}'"
+                )));
+            }
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let raw: RawChartData = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse chart data response: {e}")))?;
+
+        let points = raw
+            .graph_data
+            .into_iter()
+            .map(chart_data_point_from_tuple)
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(ChartData {
+            identifier: raw.identifier,
+            name: raw.name,
+            close_price: raw.close_price,
+            points,
+        })
     }
 
     /// Fetches every F&O contract (all expiries, all strikes, futures and
@@ -1313,5 +1467,62 @@ mod tests {
         let parsed: ContractInfo =
             serde_json::from_str(r#"{"expiryDates":["22-Sep-2026","29-Sep-2026"]}"#).unwrap();
         assert_eq!(parsed.expiry_dates, vec!["22-Sep-2026", "29-Sep-2026"]);
+    }
+
+    // Real response captured live from NSE's NextApi getSymbolChartData for
+    // SBIN with days=1D - one pre-open point, one normal-market point.
+    const SAMPLE_CHART_DATA_1D: &str = r#"{"identifier":"SBINEQN","name":"SBIN",
+        "grapthData":[[1789981259000,996,"PO","-0.2","-0.02"],
+                      [1789982159000,991.6,"NM","-4.6","-0.46"]],
+        "closePrice":996.2}"#;
+
+    #[test]
+    fn deserializes_real_chart_data_shape() {
+        let raw: RawChartData = serde_json::from_str(SAMPLE_CHART_DATA_1D).unwrap();
+        let points: Vec<ChartDataPoint> = raw
+            .graph_data
+            .into_iter()
+            .map(chart_data_point_from_tuple)
+            .collect::<Result<_>>()
+            .unwrap();
+
+        assert_eq!(raw.identifier, "SBINEQN");
+        assert_eq!(raw.close_price, 996.2);
+        assert_eq!(points[0].session, "PO");
+        assert_eq!(points[0].price, 996.0);
+        assert_eq!(points[0].change, Some(-0.2));
+        assert_eq!(points[0].percent_change, Some(-0.02));
+        assert_eq!(points[1].session, "NM");
+    }
+
+    // Real response captured live for days=1W - only daily closes, no
+    // intraday change/percent_change (both null).
+    const SAMPLE_CHART_DATA_1W: &str = r#"{"identifier":"SBINEQN","name":"SBIN",
+        "grapthData":[[1789689600000,996.2,"NM",null,null],
+                      [1789603200000,988.7,"NM",null,null]],
+        "closePrice":996.2}"#;
+
+    #[test]
+    fn chart_data_1w_has_no_change_or_percent_change() {
+        let raw: RawChartData = serde_json::from_str(SAMPLE_CHART_DATA_1W).unwrap();
+        let points: Vec<ChartDataPoint> = raw
+            .graph_data
+            .into_iter()
+            .map(chart_data_point_from_tuple)
+            .collect::<Result<_>>()
+            .unwrap();
+
+        assert_eq!(points[0].change, None);
+        assert_eq!(points[0].percent_change, None);
+    }
+
+    // Confirmed live: NSE builds this epoch from IST wall-clock digits
+    // rather than a genuine UTC instant (see `ist_timestamp_from_millis`).
+    // 1789981259000ms decodes as UTC 2026-09-21 09:00:59, which is the
+    // real IST wall-clock reading, not the real UTC one.
+    #[test]
+    fn chart_data_timestamp_is_read_as_ist_wall_clock() {
+        let ts = ist_timestamp_from_millis(1_789_981_259_000).unwrap();
+        assert_eq!(ts.to_string(), "2026-09-21 09:00:59");
     }
 }

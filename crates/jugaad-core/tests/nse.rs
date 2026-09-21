@@ -8,8 +8,9 @@
 
 use chrono::NaiveDate;
 use jugaad_core::nse::{
-    ConsolidationBasis, Instrument, NseArchives, NseCorporateResults, NseDailyReports, NseHistory,
-    NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
+    ChartPeriod, ConsolidationBasis, Instrument, NseArchives, NseCorporateResults, NseDailyReports,
+    NseHistory, NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind, OptionType,
+    ResultPeriod,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -419,6 +420,46 @@ async fn stock_quote_raw_fetches_sbin() {
 async fn stock_quote_raw_returns_not_found_for_an_unknown_symbol() {
     let quote = NseQuote::new().unwrap();
     let err = quote.stock_quote_raw("NOTAREALSYMBOL").await.unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NotFound(_)));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn stock_chart_data_raw_fetches_sbin_intraday() {
+    let quote = NseQuote::new().unwrap();
+    let chart = quote
+        .stock_chart_data_raw("SBIN", ChartPeriod::OneDay)
+        .await
+        .unwrap();
+
+    assert_eq!(chart.identifier, "SBINEQN");
+    assert_eq!(chart.name, "SBIN");
+    assert!(!chart.points.is_empty());
+    assert!(chart.points.iter().all(|p| p.price > 0.0));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn stock_chart_data_raw_one_month_has_no_intraday_change() {
+    let quote = NseQuote::new().unwrap();
+    let chart = quote
+        .stock_chart_data_raw("SBIN", ChartPeriod::OneMonth)
+        .await
+        .unwrap();
+
+    assert!(!chart.points.is_empty());
+    assert!(chart.points.iter().all(|p| p.change.is_none()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn stock_chart_data_raw_returns_not_found_for_an_unknown_symbol() {
+    let quote = NseQuote::new().unwrap();
+    let err = quote
+        .stock_chart_data_raw("NOTAREALSYMBOL", ChartPeriod::OneDay)
+        .await
+        .unwrap_err();
 
     assert!(matches!(err, jugaad_core::Error::NotFound(_)));
 }
