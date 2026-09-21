@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use jugaad_core::nse::{
-    ChartPeriod, Instrument, NseArchives, NseCorporateResults, NseDailyReports, NseHistory,
-    NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
+    ChartPeriod, Instrument, NseArchives, NseCorporateAnnouncements, NseCorporateResults,
+    NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind,
+    OptionType, ResultPeriod,
 };
 
 #[derive(Debug, Parser)]
@@ -437,6 +438,55 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/financial_results")]
         output: PathBuf,
     },
+    /// Download a symbol's corporate announcements (board meetings,
+    /// credit ratings, press releases, and similar exchange disclosures)
+    CorporateAnnouncements {
+        /// Listed-entity segment: equities, sme, debt, mf, invitsreits,
+        /// or municipalBond
+        #[arg(short, long, default_value = "equities")]
+        segment: String,
+        /// Symbol to filter to, e.g. TCS or SBIN - omit for every symbol
+        /// in the segment
+        #[arg(long)]
+        symbol: Option<String>,
+        /// Start date (inclusive), e.g. 2026-01-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2026-09-21
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/corporate_announcements")]
+        output: PathBuf,
+    },
+    /// Download Social Stock Exchange (registered social enterprise)
+    /// announcements - a different response shape than
+    /// corporate-announcements, so its own command
+    SseAnnouncements {
+        /// Symbol to filter to, e.g. "EF-SE" - omit for every SSE entity
+        #[arg(long)]
+        symbol: Option<String>,
+        /// Start date (inclusive), e.g. 2026-01-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2026-09-21
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/sse_announcements")]
+        output: PathBuf,
+    },
+    /// Download an announcement's raw attachment (get the URL from
+    /// corporate-announcements' or sse-announcements' attachment_url
+    /// column) - a PDF in every case seen so far, saved as whatever file
+    /// type NSE actually serves
+    DownloadAnnouncementAttachment {
+        /// Attachment URL
+        url: String,
+        /// Directory to save the file into
+        #[arg(short, long, default_value = "data/nse/corporate_announcements")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -723,6 +773,39 @@ async fn main() -> anyhow::Result<()> {
             let client = NseCorporateResults::new()?;
             let path = client.download_result_html_save(&url, &output).await?;
             println!("Saved result detail page to {}", path.display());
+        }
+        Command::CorporateAnnouncements {
+            segment,
+            symbol,
+            from,
+            to,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateAnnouncements::new()?;
+            let path = client
+                .corporate_announcements_csv(&segment, symbol.as_deref(), from, to, &output)
+                .await?;
+            println!("Saved corporate announcements to {}", path.display());
+        }
+        Command::SseAnnouncements {
+            symbol,
+            from,
+            to,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateAnnouncements::new()?;
+            let path = client
+                .sse_announcements_csv(symbol.as_deref(), from, to, &output)
+                .await?;
+            println!("Saved SSE announcements to {}", path.display());
+        }
+        Command::DownloadAnnouncementAttachment { url, output } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateAnnouncements::new()?;
+            let path = client.download_attachment_save(&url, &output).await?;
+            println!("Saved attachment to {}", path.display());
         }
     }
     Ok(())

@@ -33,6 +33,9 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
 | Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
+| Corporate announcements (equities/sme/debt/mf/invitsreits/municipalBond) | `NseCorporateAnnouncements::corporate_announcements_raw`/`corporate_announcements_csv` |
+| Social Stock Exchange announcements | `NseCorporateAnnouncements::sse_announcements_raw`/`sse_announcements_csv` |
+| Announcement attachments (PDF in every case seen) | `NseCorporateAnnouncements::download_attachment_raw`/`download_attachment_save` |
 
 Bhavcopy and F&O bhavcopy both automatically pick the right format for the date requested - NSE changed both formats on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
 
@@ -70,6 +73,9 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 
 - **Index price charts** - `stock_chart_data_raw`'s underlying endpoint only accepts stock symbols; no working index-chart route has been found yet (see [`docs/nse-findings.md`](docs/nse-findings.md#chart_datatick_data-resolved-2026-09-21-same-root-cause-as-the-per-symbol-quotes) for what's been tried).
 - **The rest of NSE's "Live Analysis" pages** - `market_movers_raw` covers gainers/losers; most-active equities, volume gainers, 52-week high/low, and large deals are separate pages on NSE's site, confirmed to exist, but their backing endpoints haven't been found yet.
+- **The newer SEBI Integrated Filing framework** (`corporate_integrated_filing`) - the one thing jugaad-data's `NSELive` covers that this crate doesn't; this crate instead covers older Regulation 33 filings jugaad-data can't reach (see [What this adds beyond jugaad-data](#what-this-adds-beyond-jugaad-data) above).
+- **Smaller per-symbol/reference endpoints** - `holiday_list` (trading holiday calendar), `pre_open_market`, `reg_details` (regulatory/compliance details), `index_list` (which indices a symbol belongs to), `symbol_meta`/`symbol_name`, `yearwise_data` - none investigated yet.
+- **Whole-market index bhavcopy** (`bhavcopy_index_raw`, `NSEIndicesArchives`) - a daily file of every index's closing values, distinct from the per-index OHLC history already built.
 
 ## Requirements
 
@@ -91,12 +97,13 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (31 commands
+Run `jugaad --help` for the full, always-current command list (34 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
 history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
 market status/index snapshot/turnover/F&O/block deals/F&O turnover
 leaderboards/market movers, live per-symbol quotes/charts/option chains,
-and financial-results filings). A few representative examples:
+financial-results filings, and corporate announcements). A few
+representative examples:
 
 ```bash
 # Whole-market bhavcopy for one day

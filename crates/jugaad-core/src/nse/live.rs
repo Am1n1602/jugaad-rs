@@ -972,6 +972,30 @@ pub(super) fn write_csv<T: Serialize>(rows: &[T], path: &Path) -> Result<PathBuf
     Ok(path.to_path_buf())
 }
 
+/// Shared by every `download_*_raw` method that fetches an arbitrary file
+/// by URL (XBRL/HTML filings in `corporate_results.rs`, PDF attachments
+/// in `corporate_announcements.rs`): downloads whatever bytes are at
+/// `url`, unchanged - the caller decides what format to expect.
+pub(super) async fn download_bytes(client: &Client, url: &str) -> Result<Vec<u8>> {
+    let response = client.get(url).send().await?;
+
+    match response.status() {
+        StatusCode::OK => {}
+        StatusCode::NOT_FOUND => return Err(Error::NotFound(format!("no file at '{url}'"))),
+        StatusCode::FORBIDDEN => return Err(Error::Blocked),
+        status => return Err(Error::UnexpectedStatus(status)),
+    }
+
+    Ok(response.bytes().await?.to_vec())
+}
+
+/// The last path segment of a URL, used as a filename for every
+/// `download_*_save` method that saves a file under NSE's own name for
+/// it rather than building one from the caller's own arguments.
+pub(super) fn filename_from_url(url: &str) -> &str {
+    url.rsplit('/').next().unwrap_or(url)
+}
+
 // Panicking via `.unwrap()` on a failed assertion is the normal, intended
 // way for a test to fail - the workspace-wide `unwrap_used` lint is aimed at
 // production code paths, not test code, hence the blanket allow below.

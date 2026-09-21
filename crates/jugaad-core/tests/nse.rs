@@ -8,9 +8,9 @@
 
 use chrono::NaiveDate;
 use jugaad_core::nse::{
-    ChartPeriod, ConsolidationBasis, Instrument, NseArchives, NseCorporateResults, NseDailyReports,
-    NseHistory, NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind, OptionType,
-    ResultPeriod,
+    ChartPeriod, ConsolidationBasis, Instrument, NseArchives, NseCorporateAnnouncements,
+    NseCorporateResults, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
+    OptionChainKind, OptionType, ResultPeriod,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -670,6 +670,78 @@ async fn financial_results_raw_deserializes_consolidation_basis_correctly() {
         rows.iter()
             .any(|r| r.consolidated == ConsolidationBasis::NonConsolidated)
     );
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn corporate_announcements_raw_fetches_sbin_equities_announcements() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .corporate_announcements_raw(
+            "equities",
+            Some("SBIN"),
+            date(2026, 1, 1),
+            date(2026, 9, 21),
+        )
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r.symbol.as_deref() == Some("SBIN")));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn corporate_announcements_raw_debt_segment_has_no_symbol_or_isin() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .corporate_announcements_raw("debt", None, date(2026, 9, 1), date(2026, 9, 21))
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r.symbol.is_none() && r.isin.is_none()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn corporate_announcements_raw_returns_empty_for_an_unrecognized_segment() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .corporate_announcements_raw("notarealsegment", None, date(2026, 9, 1), date(2026, 9, 21))
+        .await
+        .unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn sse_announcements_raw_fetches_social_enterprise_disclosures() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .sse_announcements_raw(None, date(2026, 1, 1), date(2026, 9, 21))
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| !r.company_name.is_empty()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn download_attachment_raw_fetches_a_real_pdf() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .sse_announcements_raw(None, date(2026, 1, 1), date(2026, 9, 21))
+        .await
+        .unwrap();
+
+    let url = &rows[0].attachment_url;
+    let bytes = client.download_attachment_raw(url).await.unwrap();
+
+    assert!(!bytes.is_empty());
+    assert!(url.ends_with(".pdf"));
 }
 
 #[tokio::test]

@@ -24,7 +24,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
-use super::live::write_csv;
+use super::live::{download_bytes, filename_from_url, write_csv};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
@@ -224,7 +224,7 @@ impl NseCorporateResults {
     /// Downloads the raw XBRL instance document (XML) from
     /// `FinancialResultRow::xbrl_url`.
     pub async fn download_xbrl_raw(&self, xbrl_url: &str) -> Result<Vec<u8>> {
-        self.download_raw(xbrl_url).await
+        download_bytes(&self.client, xbrl_url).await
     }
 
     /// Downloads the XBRL document the same way as `download_xbrl_raw`,
@@ -244,7 +244,7 @@ impl NseCorporateResults {
     /// structured data. Only call this when `result_detailed_data_link`
     /// is `Some`.
     pub async fn download_result_html_raw(&self, url: &str) -> Result<Vec<u8>> {
-        self.download_raw(url).await
+        download_bytes(&self.client, url).await
     }
 
     /// Downloads the HTML page the same way as
@@ -257,25 +257,6 @@ impl NseCorporateResults {
         std::fs::write(&path, &bytes)?;
         Ok(path)
     }
-
-    async fn download_raw(&self, url: &str) -> Result<Vec<u8>> {
-        let response = self.client.get(url).send().await?;
-
-        match response.status() {
-            StatusCode::OK => {}
-            StatusCode::NOT_FOUND => return Err(Error::NotFound(format!("no file at '{url}'"))),
-            StatusCode::FORBIDDEN => return Err(Error::Blocked),
-            status => return Err(Error::UnexpectedStatus(status)),
-        }
-
-        Ok(response.bytes().await?.to_vec())
-    }
-}
-
-/// The last path segment of a URL, used as a filename for
-/// `download_xbrl_save`/`download_result_html_save` - NSE's own XBRL/HTML
-fn filename_from_url(url: &str) -> &str {
-    url.rsplit('/').next().unwrap_or(url)
 }
 
 // Panicking via `.unwrap()` on a failed assertion is the normal, intended

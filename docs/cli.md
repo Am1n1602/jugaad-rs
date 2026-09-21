@@ -45,6 +45,9 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`financial-results`](#financial-results) - download a symbol's financial-results filings (equities/sme only)
 - [`download-xbrl`](#download-xbrl-download-result-html) - download a filing's raw XBRL document
 - [`download-result-html`](#download-xbrl-download-result-html) - download a filing's raw HTML detail page (older filings only)
+- [`corporate-announcements`](#corporate-announcements) - download a symbol's corporate announcements (board meetings, ratings, press releases, etc.)
+- [`sse-announcements`](#sse-announcements) - download Social Stock Exchange (registered social enterprise) announcements
+- [`download-announcement-attachment`](#download-announcement-attachment) - download an announcement's raw attachment (a PDF in every case seen)
 
 ---
 
@@ -1412,6 +1415,150 @@ Saved result detail page to data/nse/financial_results/financial_res_TCS_93671.h
 - `download-xbrl` only makes sense for a filing whose `xbrl_url` column
   wasn't blank; `download-result-html` only for one whose
   `result_detailed_data_link` wasn't blank.
+
+---
+
+## `corporate-announcements`
+
+Downloads a symbol's corporate announcements - board meeting outcomes,
+credit ratings, appointments/resignations, press releases, and similar
+exchange disclosures - and saves them as a CSV, one row per announcement.
+Distinct from `financial-results`, which covers financial-results
+filings specifically.
+
+```bash
+jugaad corporate-announcements [OPTIONS] --from <FROM> --to <TO>
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-s, --segment <SEGMENT>` | `equities` | Listed-entity segment: `equities`, `sme`, `debt`, `mf`, `invitsreits`, or `municipalBond` |
+| `--symbol <SYMBOL>` | none | Symbol to filter to, e.g. `TCS` - omit for every symbol in the segment |
+| `-f, --from <FROM>` | required | Start date (inclusive), e.g. 2026-01-01 |
+| `-t, --to <TO>` | required | End date (inclusive), e.g. 2026-09-21 |
+| `-o, --output <OUTPUT>` | `data/nse/corporate_announcements` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad corporate-announcements --symbol SBIN --from 2026-01-01 --to 2026-09-21
+```
+
+```
+Saved corporate announcements to data/nse/corporate_announcements/SBIN-equities-announcements-2026-01-01-2026-09-21.csv
+```
+
+### CSV columns
+
+`symbol, isin, company_name, category, description, industry, has_xbrl, attachment_url, file_size, announcement_time, sequence_id`
+
+`symbol`/`isin` are only both populated for the `equities` segment -
+confirmed live, `debt`/`municipalBond` (bonds) leave both blank,
+`sme`/`mf`/`invitsreits` have a `symbol` but leave `isin` blank.
+`attachment_url` points to the announcement's document - a PDF in every
+case seen so far - download it with `download-announcement-attachment`.
+
+### Notes
+
+- Requires an explicit date range - there's no "just the latest few"
+  mode here (unlike NSE's own default view), so pass a narrow range
+  (even `--from`/`--to` the same day) if that's what you want.
+- `sse` (Social Stock Exchange) is not a valid `--segment` value here -
+  it returns a completely different set of columns through the same NSE
+  endpoint. Use `sse-announcements` instead.
+- An unrecognized `--segment` value returns an empty CSV rather than an
+  error - confirmed live, NSE's own response doesn't distinguish "bad
+  segment name" from "valid segment, zero matches" either.
+
+---
+
+## `sse-announcements`
+
+Downloads Social Stock Exchange announcements - disclosures from NSE's
+segment for registered social enterprises and NPOs - and saves them as a
+CSV. A separate command from `corporate-announcements` because this
+segment's response has a genuinely different set of columns, not just
+different values.
+
+```bash
+jugaad sse-announcements [OPTIONS] --from <FROM> --to <TO>
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--symbol <SYMBOL>` | none | Symbol to filter to, e.g. `EF-SE` - omit for every SSE entity |
+| `-f, --from <FROM>` | required | Start date (inclusive), e.g. 2026-01-01 |
+| `-t, --to <TO>` | required | End date (inclusive), e.g. 2026-09-21 |
+| `-o, --output <OUTPUT>` | `data/nse/sse_announcements` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad sse-announcements --from 2026-01-01 --to 2026-09-21
+```
+
+```
+Saved SSE announcements to data/nse/sse_announcements/sse-announcements-2026-01-01-2026-09-21.csv
+```
+
+### CSV columns
+
+`symbol, company_name, category, text, has_xbrl, attachment_url, file_size, announcement_time, sequence_id`
+
+`symbol` is blank for most entities - confirmed live, only some
+registered social enterprises have their own trading-style symbol (e.g.
+`EF-SE`). `attachment_url` is always present here (unlike
+`corporate-announcements`, where it can be blank for the `mf` segment) -
+a PDF in every case seen so far.
+
+### Notes
+
+- Same date-range requirement as `corporate-announcements`.
+
+---
+
+## `download-announcement-attachment`
+
+Downloads a single announcement's raw attachment, given a URL from
+`corporate-announcements`' or `sse-announcements`' `attachment_url`
+column - a PDF in every case seen so far, but saved as whatever file
+type NSE actually serves rather than assumed.
+
+```bash
+jugaad download-announcement-attachment [OPTIONS] <URL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<URL>` | An attachment URL copied from `corporate-announcements`' or `sse-announcements`' `attachment_url` column |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/corporate_announcements` | Directory to save the file into |
+
+### Examples
+
+```bash
+jugaad download-announcement-attachment "https://nsearchives.nseindia.com/corporate/500003401_19092026173745_Annexurespdf.pdf"
+```
+
+```
+Saved attachment to data/nse/corporate_announcements/500003401_19092026173745_Annexurespdf.pdf
+```
+
+### Notes
+
+- Saves under NSE's own filename (the URL's last path segment) - like
+  `download-xbrl`/`download-result-html`, there's no symbol/date to build
+  a filename from since this takes a bare URL.
 
 ---
 

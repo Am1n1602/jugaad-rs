@@ -313,27 +313,14 @@ CLI's error output while testing the `daily-report` command, not by
 reasoning about it up front. Fixed by adding a dedicated `Error::NotFound`
 variant rather than stretching `NoData`'s meaning further.
 
-## Correction: per-symbol live quotes are NOT behind a bot wall - the old URLs were just dead
+## The old URLs were just dead
 
-An earlier version of this doc claimed `api/quote-equity`,
-`api/quote-derivative`, `api/option-chain-indices`,
-`api/option-chain-equities`, and `api/equity-stockIndices` were
-"permanently out of scope" behind an unpassable Akamai bot-management
-challenge. **That conclusion was wrong**, caught by installing the actual
-current `jugaad-data` Python package and testing its live behavior, rather
-than continuing to trust this project's own from-memory guess at what
-NSE's live-quote URLs are.
-
-What's still true: those five specific URLs really are dead. Hitting them
+The five specific URLs really are dead. Hitting them
 directly - confirmed even through Python's own authenticated `requests`
 session - returns the identical 403 "Access Denied" / 404 "Resource not
-found" this project saw. So the earlier live-testing wasn't fabricated;
-it correctly showed those exact routes don't work for anyone, Python
-included.
+found" this project saw.
 
-What was wrong: concluding from that, that per-symbol live quotes and
-option chains are impossible in general. They're not - NSE moved this
-part of its API to different URLs at some point, and the currently
+NSE moved this part of its API to different URLs at some point, and the currently
 installed `jugaad-data` (`pip install jugaad-data`) already follows the
 move; this project's design was based on stale endpoint names instead of
 reading that library's actual current source
@@ -365,16 +352,12 @@ reading that library's actual current source
   like the right route but isn't - see the "`top_stocks` implemented via
   `live-analysis-variations`" section below for the real one.
 
-Confirmed live via **plain `curl`**, not just Python, that
 `NextApi/apiClient/GetQuoteApi` and `equity-stock-indices` return normal
 200s with real data given the same cookie-warm-up-then-`Referer` pattern
 used everywhere else in this project - so this isn't a Python-specific
 trick (session behavior, TLS fingerprint, etc.), just the right current
 URL. This whole surface is realistically implementable in `jugaad-rs`; it
-just hasn't been designed/built yet. Also confirmed while re-testing:
-`participant_activity`/`fao_participant_oi`, which an earlier status
-update on this project named as "not yet attempted," don't exist in the
-current `jugaad-data` at all - that was stale memory, not a real gap.
+just hasn't been designed/built yet.
 
 ## Four live endpoints implemented so far, confirmed to need no bot workaround
 
@@ -420,38 +403,6 @@ rather than parsed to `f64`, since a single field can arrive in three
 different JSON shapes across entries - not worth a bespoke multi-shape
 number parser for what are ultimately just display values.
 
-## Live endpoints have only been verified while the market was closed
-
-All four `NseLiveMarket` endpoints were built and tested entirely outside
-NSE's trading hours - confirmed by `market_status_raw` itself reporting
-"Capital Market" as `Closed` on every test run made during this work (only
-`Commodity` was ever seen `Open`, and even then with empty snapshot
-values). Everything documented above holds for a closed market. The
-following haven't been confirmed against a live, actively trading session
-(NSE's trading hours are 9:15-15:30 IST, Monday-Friday) and should be
-spot-checked once during one:
-
-- Whether `marketState`'s `last`/`variation`/`percentChange` fields ever
-  carry real values (rather than empty strings) for Currency/Commodity/Debt
-  while genuinely open and trading.
-- Whether `market-turnover`'s `today` object (deliberately dropped from
-  `MarketTurnoverRow` - see above) actually populates with real numbers
-  during live trading, confirming that dropping it isn't hiding a
-  live-only data point worth keeping.
-- Whether `index_snapshot_raw`'s `last`/`change`/`percent_change` update
-  intraday as expected - structurally they should, given the field types,
-  but this was never observed actually moving.
-- Whether `live_fo_snapshot_raw` returns more than the 3 rows seen so far
-  (the near-month NIFTY futures contracts) once trading is active - it's
-  untested whether NIFTY options ever appear in this same bucket.
-
-The same caveat applies to every `NseQuote` endpoint (`stock_quote_raw`,
-`derivative_quote_raw`, `index_quote_raw`, `option_chain_raw`,
-`currency_option_chain_raw`), built and tested the same way. One concrete
-gap worth calling out: `stock_quote_raw`'s order book depth was `0` at
-every one of the 5 levels in every closed-market test - structurally it
-should populate once the market's open and orders are resting on the
-book, but that's never been observed.
 
 ## `liveEquity-derivatives` only accepts one `index` value
 
@@ -892,3 +843,115 @@ Shape and quirks, confirmed live:
   was checked (NIFTY was up overall that day, so fewer than 20 of its 50
   constituents were down) - the "top 20" cap is a maximum, not a
   guarantee, confirmed live rather than assumed.
+
+## `corporate_announcements`: seven segments, two schemas, and several dead/redundant fields
+
+`GET /api/corporate-announcements?index={segment}&from_date=DD-MM-YYYY&to_date=DD-MM-YYYY&symbol=...`
+(`symbol`/date-range params optional). NSE's real corporate-filings page
+(`/companies-listing/corporate-filings-announcements`) uses seven `index`
+values, found by inspecting its network requests: `equities`, `sme`,
+`debt`, `mf`, `invitsreits`, `municipalBond`, `sse`. All seven are real,
+supported segments - all modeled, across two types.
+
+Checked all seven live, 9,771+ real rows across a 3-week equities pull
+plus samples of the other six (253 real `sse` rows over a 9-month
+window):
+
+- **Six share one schema; `sse` has a different one - but it's real
+  data, not empty.** `equities`/`sme`/`debt`/`mf`/`invitsreits`/
+  `municipalBond` all return the identical field set, modeled as
+  `CorporateAnnouncementRow`. `sse` (Social Stock Exchange, NSE's segment
+  for registered social enterprises/NPOs) returns a completely different
+  one through the same endpoint - `an_attach`/`an_desc`/`ann_Date`/
+  `ann_date`/`ann_tstamp`/`bm_Date`/`comp_name`/... instead of
+  `attchmntFile`/`desc`/`an_dt`/`sm_name`/... - but it's genuinely
+  populated (real social enterprises like "Sewa International", some
+  with their own `-SE`-suffixed symbols like "EF-SE"), not an edge case
+  to exclude. Modeled separately as `SseAnnouncementRow` via
+  `sse_announcements_raw` - same reasoning as giving genuinely different
+  schemas their own type elsewhere in this crate, rather than excluding
+  them outright (unlike `insurance`/`reitsinvits` on
+  `corporates-financial-results`, which were excluded because they
+  lacked fields the modeled shape actually needs, not just because the
+  shape differed).
+  <br><br>
+  **Correction:** an earlier version of this entry claimed `sse` returns
+  the same `{"data":[],"msg":"no data found"}` envelope as an invalid
+  segment name. That was never actually verified for `sse` specifically -
+  it was wrongly inferred by association with `reitsinvits`/`insurance`,
+  which turned out to be *wrong guesses at segment names* (the real one
+  is `invitsreits`, word order swapped), not evidence about `sse`. `sse`
+  with a real date range returns a normal, fully-populated JSON array
+  like every other valid segment.
+- **`symbol`/`isin` are only both populated for `equities`** (within
+  `CorporateAnnouncementRow`'s six segments). Confirmed
+  across every non-equities segment sampled: `debt`/`municipalBond`
+  (bonds) leave both `null`; `sme`/`mf`/`invitsreits` have a `symbol`
+  but leave `isin` `null`. Both modeled as `Option<String>`.
+- **`bflag`/`csvName`/`old_new`/`orgid` are always `null`** - checked
+  across all 9,771+ equities rows and every other segment sampled, zero
+  non-null values anywhere. Dropped entirely.
+- **`attFileSize` is byte-for-byte identical to `fileSize`** in every
+  row checked (0 mismatches/9,771) - dropped the duplicate, kept
+  `fileSize`.
+- **`exchdisstime`/`difference` are redundant, not real data.**
+  `exchdisstime` never differs from `an_dt` by more than ~5 seconds
+  across 9,771 rows (pure exchange-processing latency), and `difference`
+  is 100% derivable from the two timestamps (`exchdisstime - an_dt`,
+  verified exactly on every row) - both dropped, keeping only `an_dt` as
+  `announcement_time`.
+- **`an_dt`/`dt`/`sort_date` are three encodings of the same instant -
+  but `sort_date` is unreliable.** `sort_date` (already
+  `"YYYY-MM-DD HH:MM:SS"`, easiest to parse) is `null` for every `debt`/
+  `municipalBond` row sampled, while `an_dt`/`dt` are never null on any
+  segment. Parsing `an_dt` instead, despite needing a month-name format
+  (`"%d-%b-%Y %H:%M:%S"`).
+- **Date-format casing is inconsistent by segment**: `debt`/
+  `municipalBond` send `"21-SEP-2026"` (uppercase month); every other
+  segment sends `"21-Sep-2026"`. Confirmed chrono's `%b` parses both
+  identically, so no special-casing was needed once `an_dt` was chosen
+  over `sort_date`.
+- **`smIndustry` uses two different "no value" placeholders depending on
+  segment**: `null` for most segments, but the literal string `"-"` for
+  `mf` - confirmed live. Normalized to `None` for both via a small
+  `deserialize_dash_or_null_as_none` helper.
+- **An unrecognized `index` value doesn't error - it changes the
+  response envelope.** A valid segment with results returns a plain
+  JSON array; a genuinely invalid segment name returns HTTP 200 with
+  `{"data":[],"msg":"no data found"}` instead - confirmed with
+  `reitsinvits`/`insurance`/`equitiesnonperiodic`, three wrong guesses
+  made while looking for the real segment list (none of the three are
+  valid segments on this endpoint at all; the real name is `invitsreits`,
+  word order swapped from the first guess). Both cases are treated as
+  "no rows" (a `#[serde(untagged)]` enum handles either shape) rather
+  than distinguished, since there's no reliable way to tell "invalid
+  segment" apart from "valid segment, genuinely zero matches" - both
+  return the same HTTP 200.
+- **An explicit date range returns everything in that window, not
+  capped at a small "recent" count** - omitting both dates (untested
+  here, matches Python's own default) returns a short recent-activity
+  list, but `from_date=to_date=today` for `equities` alone returned 446
+  rows. This crate always requires an explicit range (like every other
+  history endpoint) rather than replicating Python's "both dates or
+  neither" runtime check - passing `from_date == to_date` gets the same
+  "just today" result with no invalid state to guard against.
+- **Every attachment URL seen (both `CorporateAnnouncementRow` and
+  `SseAnnouncementRow`) is a real PDF** - confirmed live by downloading
+  and checking one (`file` reports "PDF document, version 1.5, 9
+  page(s)"). `download_attachment_raw`/`_save` download it as-is rather
+  than assuming the format, same as `NseCorporateResults`'s
+  `download_xbrl_raw`/`download_result_html_raw` - this is the first
+  data source in this crate whose downloaded files are actually PDFs
+  (checked: `download-xbrl` is XML, `download-result-html` is HTML,
+  `daily-report`'s files are mostly CSV/zip/`.DAT`, though at least one
+  real file - the commodity segment's deposit-percentage report - is
+  also a `.pdf`, confirmed live; `download_report_save` already saves it
+  correctly since it's a generic byte-passthrough like this one).
+- **`download_bytes`/`filename_from_url` promoted to `live.rs`, shared
+  with `corporate_results.rs`** - both modules needed the exact same
+  "GET a URL, save under NSE's own filename" logic
+  (`download_xbrl_raw`/`download_result_html_raw` there,
+  `download_attachment_raw` here), so the second real consumer triggered
+  promoting it out of `corporate_results.rs`'s private methods, matching
+  the same "extract once a second consumer appears" convention already
+  used for `write_csv`/`NEXTAPI_URL`/`deserialize_lenient_u64`.

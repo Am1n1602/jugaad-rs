@@ -1,4 +1,5 @@
 pub mod archives;
+pub mod corporate_announcements;
 pub mod corporate_results;
 pub mod daily_reports;
 mod dates;
@@ -8,6 +9,9 @@ pub mod live;
 pub mod quote;
 
 pub use archives::NseArchives;
+pub use corporate_announcements::{
+    CorporateAnnouncementRow, NseCorporateAnnouncements, SseAnnouncementRow,
+};
 pub use corporate_results::{
     AuditStatus, ConsolidationBasis, FinancialResultRow, NseCorporateResults, ResultPeriod,
 };
