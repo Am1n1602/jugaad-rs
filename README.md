@@ -36,6 +36,8 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 
 Bhavcopy and F&O bhavcopy both automatically pick the right format for the date requested - NSE changed both formats on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
 
+An optional `dataframe` Cargo feature adds `jugaad_core::dataframe::to_dataframe`, converting any `Vec<Row>` from the table above into a `polars::DataFrame`. It's one generic function, not a conversion method per type - every row type already implements `Serialize` (for CSV export), so rows are serialized to newline-delimited JSON in memory and handed to polars' own JSON reader, rather than hand-writing a column builder for each of the ~20 row types in this crate. Enable it with `jugaad-core = { path = "...", features = ["dataframe"] }`.
+
 `NseCorporateResults` only supports the `equities` and `sme` segments - confirmed live, NSE's `insurance` and `reitsinvits` segments return a completely different, incompatible response shape through the same endpoint (not a documentation gap, a real schema difference), and `debt` returned no data in testing. See [`docs/nse-findings.md`](docs/nse-findings.md#corporates-financial-results-returns-a-genuinely-different-schema-per-segment) for the full breakdown.
 
 The live/quote endpoints above were built while NSE's market was closed, then spot-checked again live with the market genuinely open (2026-09-21) - order book depth and index values do populate/move as expected; `market-turnover`'s same-day figures and the Currency/Commodity/Debt segments' snapshot values turned out to just never populate through these endpoints, open market or not, which is now confirmed rather than assumed. See [`docs/nse-findings.md`](docs/nse-findings.md#the-market-hours-retest-done-live-on-2026-09-21-nse-genuinely-open) for the full rundown.
@@ -66,7 +68,8 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 
 ## Pending
 
-- **A `dataframe`/`polars` Cargo feature** - not started; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source.
+- **Index price charts** - `stock_chart_data_raw`'s underlying endpoint only accepts stock symbols; no working index-chart route has been found yet (see [`docs/nse-findings.md`](docs/nse-findings.md#chart_datatick_data-resolved-2026-09-21-same-root-cause-as-the-per-symbol-quotes) for what's been tried).
+- **The rest of NSE's "Live Analysis" pages** - `market_movers_raw` covers gainers/losers; most-active equities, volume gainers, 52-week high/low, and large deals are separate pages on NSE's site, confirmed to exist, but their backing endpoints haven't been found yet.
 
 ## Requirements
 
@@ -161,6 +164,14 @@ cargo test --workspace
 ```bash
 cargo test -p jugaad-core -- --ignored
 ```
+
+To test the optional `dataframe` feature specifically:
+
+```bash
+cargo test -p jugaad-core --features dataframe
+```
+
+If that (or `cargo test --workspace --all-features`) intermittently fails with errors like `crate ... required to be available in rlib format, but was not found in this form` for a different, seemingly unrelated crate each run, it's very likely cargo's default job count (one per logical CPU) exceeding available RAM once `polars`'s large dependency tree is in the build - not a real compile error. Cap parallelism in `.cargo/config.toml`: `[build]` / `jobs = 4` (or pass `--jobs 4` on the command line) and retry.
 
 ## Documentation
 

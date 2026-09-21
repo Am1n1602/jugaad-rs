@@ -1,3 +1,5 @@
+#[cfg(feature = "dataframe")]
+pub mod dataframe;
 pub mod error;
 pub mod nse;
 
