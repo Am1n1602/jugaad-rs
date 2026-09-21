@@ -505,6 +505,165 @@ struct EqDerivativeTurnoverResponse {
     volume: Vec<RawEqDerivativeTurnover>,
 }
 
+/// Which direction to fetch market movers for -
+/// `live-analysis-variations`'s `index` query parameter. NSE spells the
+/// losers value `"loosers"` on the wire (confirmed live); this crate's
+/// public API uses the correct spelling and corrects it internally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MoverDirection {
+    Gainers,
+    Losers,
+}
+
+impl MoverDirection {
+    fn as_query_param(self) -> &'static str {
+        match self {
+            MoverDirection::Gainers => "gainers",
+            MoverDirection::Losers => "loosers",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            MoverDirection::Gainers => "gainers",
+            MoverDirection::Losers => "losers",
+        }
+    }
+}
+
+/// One stock's row in a top-gainers/top-losers list, scoped to one of
+/// NSE's seven index/security buckets (`scope`): `NIFTY`, `BANKNIFTY`,
+/// `NIFTYNEXT50`, `SecGtr20` ("Securities > Rs 20"), `SecLwr20`
+/// ("Securities < Rs 20"), `FOSec` ("F&O Securities"), or `allSec` ("All
+/// Securities") - NSE's own bucket keys, confirmed live via this
+/// endpoint's own `legends` field, kept as-is rather than renamed.
+///
+/// This is the endpoint NSE's own "Top Gainers/Losers" page actually
+/// calls - confirmed live by inspecting that page's network requests.
+/// `NSELive.top_stocks`/`getTopTenStock` (the endpoint Python's
+/// `top_stocks` uses) was tried first and reliably returns only its
+/// `topGainers` field; every other field it claims to have came back
+/// empty across repeated live checks with the market open, while this
+/// endpoint had real data for both directions at the same moment. See
+/// `docs/nse-findings.md`.
+///
+/// NSE returns all seven buckets in one response per direction;
+/// `market_movers_raw` flattens both directions and all seven buckets
+/// into one `Vec` tagged by `scope`/`direction`, matching the
+/// one-row-per-record convention used elsewhere in this crate.
+#[derive(Debug, Serialize)]
+pub struct MarketMoverRow {
+    pub scope: String,
+    pub direction: String,
+    pub symbol: String,
+    pub series: String,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub last_price: f64,
+    pub previous_close: f64,
+    pub change: f64,
+    pub percent_change: f64,
+    pub traded_quantity: u64,
+    pub turnover: f64,
+    pub market_type: String,
+    // "-" on the wire when there's no upcoming corporate action -
+    // confirmed live (13 of 127 rows in one sample).
+    pub ca_ex_date: Option<String>,
+    pub ca_purpose: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMoverRow {
+    symbol: String,
+    series: String,
+    #[serde(rename = "open_price")]
+    open: f64,
+    #[serde(rename = "high_price")]
+    high: f64,
+    #[serde(rename = "low_price")]
+    low: f64,
+    ltp: f64,
+    #[serde(rename = "prev_price")]
+    previous_close: f64,
+    #[serde(rename = "net_price")]
+    change: f64,
+    // Confirmed live: not a duplicate of `net_price` (an absolute price
+    // change) despite matching in many rows - they diverge on others
+    // (e.g. one sample: net_price 1.54 vs perChange 0.96), so both are
+    // kept. NSE also spells this one in camelCase, unlike every other
+    // field on this row.
+    #[serde(rename = "perChange")]
+    percent_change: f64,
+    #[serde(rename = "trade_quantity")]
+    traded_quantity: u64,
+    turnover: f64,
+    #[serde(rename = "market_type")]
+    market_type: String,
+    #[serde(rename = "ca_ex_dt", deserialize_with = "deserialize_dash_as_none")]
+    ca_ex_date: Option<String>,
+    #[serde(deserialize_with = "deserialize_dash_as_none")]
+    ca_purpose: Option<String>,
+}
+
+impl RawMoverRow {
+    fn into_row(self, scope: &str, direction: &str) -> MarketMoverRow {
+        MarketMoverRow {
+            scope: scope.to_string(),
+            direction: direction.to_string(),
+            symbol: self.symbol,
+            series: self.series,
+            open: self.open,
+            high: self.high,
+            low: self.low,
+            last_price: self.ltp,
+            previous_close: self.previous_close,
+            change: self.change,
+            percent_change: self.percent_change,
+            traded_quantity: self.traded_quantity,
+            turnover: self.turnover,
+            market_type: self.market_type,
+            ca_ex_date: self.ca_ex_date,
+            ca_purpose: self.ca_purpose,
+        }
+    }
+}
+
+fn deserialize_dash_as_none<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    Ok(if raw == "-" { None } else { Some(raw) })
+}
+
+#[derive(Debug, Deserialize)]
+struct MoverBucket {
+    data: Vec<RawMoverRow>,
+}
+
+/// NSE returns all seven buckets in one response, keyed exactly as shown
+/// in the response's own `legends` field - confirmed live.
+#[derive(Debug, Deserialize)]
+struct MoverResponse {
+    #[serde(rename = "NIFTY")]
+    nifty: MoverBucket,
+    #[serde(rename = "BANKNIFTY")]
+    bank_nifty: MoverBucket,
+    #[serde(rename = "NIFTYNEXT50")]
+    nifty_next_50: MoverBucket,
+    #[serde(rename = "SecGtr20")]
+    sec_gtr_20: MoverBucket,
+    #[serde(rename = "SecLwr20")]
+    sec_lwr_20: MoverBucket,
+    #[serde(rename = "FOSec")]
+    fo_sec: MoverBucket,
+    #[serde(rename = "allSec")]
+    all_sec: MoverBucket,
+}
+
 #[derive(Debug, Clone)]
 pub struct NseLiveMarket {
     client: Client,
@@ -742,6 +901,62 @@ impl NseLiveMarket {
     /// file path and always overwrites.
     pub async fn eq_derivative_turnover_csv(&self, path: &Path) -> Result<PathBuf> {
         let rows = self.eq_derivative_turnover_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches NSE's top-gainers/top-losers lists across all seven of its
+    /// index/security buckets, flattened into one `Vec` tagged by
+    /// `scope`/`direction`. Two requests under the hood (one per
+    /// direction - NSE's endpoint returns all seven buckets for a single
+    /// direction per call, not both directions at once).
+    pub async fn market_movers_raw(&self) -> Result<Vec<MarketMoverRow>> {
+        let mut rows = Vec::new();
+
+        for direction in [MoverDirection::Gainers, MoverDirection::Losers] {
+            let response = self
+                .client
+                .get(format!("{BASE_URL}/api/live-analysis-variations"))
+                .query(&[("index", direction.as_query_param())])
+                .send()
+                .await?;
+
+            match response.status() {
+                StatusCode::OK => {}
+                StatusCode::FORBIDDEN => return Err(Error::Blocked),
+                status => return Err(Error::UnexpectedStatus(status)),
+            }
+
+            let parsed: MoverResponse = response.json().await.map_err(|e| {
+                Error::Parse(format!("could not parse market movers response: {e}"))
+            })?;
+
+            let direction_label = direction.label();
+            for (bucket, scope) in [
+                (parsed.nifty, "NIFTY"),
+                (parsed.bank_nifty, "BANKNIFTY"),
+                (parsed.nifty_next_50, "NIFTYNEXT50"),
+                (parsed.sec_gtr_20, "SecGtr20"),
+                (parsed.sec_lwr_20, "SecLwr20"),
+                (parsed.fo_sec, "FOSec"),
+                (parsed.all_sec, "allSec"),
+            ] {
+                rows.extend(
+                    bucket
+                        .data
+                        .into_iter()
+                        .map(|raw| raw.into_row(scope, direction_label)),
+                );
+            }
+        }
+
+        Ok(rows)
+    }
+
+    /// Fetches market movers the same way as `market_movers_raw`, then
+    /// writes them as a CSV file to `path` exactly - see `market_status_csv`
+    /// for why this takes a full file path and always overwrites.
+    pub async fn market_movers_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.market_movers_raw().await?;
         write_csv(&rows, path)
     }
 }
@@ -1104,5 +1319,81 @@ mod tests {
             header,
             "ranking,underlying,identifier,instrument_type,instrument,expiry,option_type,strike_price,last_price,percent_change,open,high,low,contracts_traded,total_turnover,premium_turnover,open_interest,underlying_value"
         );
+    }
+
+    // Real response shape captured live from
+    // `live-analysis-variations?index=gainers`, trimmed to two of the
+    // seven buckets and one row each. `NIFTYNEXT50`/`SecGtr20`/`SecLwr20`/
+    // `FOSec`/`allSec` are structurally identical to `NIFTY`/`BANKNIFTY`
+    // shown here.
+    const SAMPLE_MARKET_MOVERS: &str = r#"{"legends":[["NIFTY","NIFTY 50"]],
+        "NIFTY":{"data":[
+            {"symbol":"HDFCLIFE","series":"EQ","open_price":551.65,"high_price":565.9,
+             "low_price":551.65,"ltp":562,"prev_price":550.95,"net_price":2.01,
+             "trade_quantity":1822012,"turnover":10247.7242928,"market_type":"N",
+             "ca_ex_dt":"19-Jun-2026","ca_purpose":"Dividend - Rs 2.10 Per Share","perChange":2.01}
+        ],"timestamp":"21-Sep-2026 13:48:09"},
+        "BANKNIFTY":{"data":[
+            {"symbol":"SBIN","series":"EQ","open_price":992,"high_price":996.2,
+             "low_price":985.1,"ltp":991.4,"prev_price":988.7,"net_price":2.7,
+             "trade_quantity":5699456,"turnover":5653.23341184,"market_type":"N",
+             "ca_ex_dt":"-","ca_purpose":"-","perChange":0.27}
+        ],"timestamp":"21-Sep-2026 13:48:09"},
+        "NIFTYNEXT50":{"data":[]},"SecGtr20":{"data":[]},"SecLwr20":{"data":[]},
+        "FOSec":{"data":[]},"allSec":{"data":[]}}"#;
+
+    #[test]
+    fn deserializes_real_market_movers_shape() {
+        let parsed: MoverResponse = serde_json::from_str(SAMPLE_MARKET_MOVERS).unwrap();
+
+        let nifty_row = parsed
+            .nifty
+            .data
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_row("NIFTY", "gainers");
+        assert_eq!(nifty_row.symbol, "HDFCLIFE");
+        assert_eq!(nifty_row.last_price, 562.0);
+        assert_eq!(nifty_row.change, 2.01);
+        assert_eq!(nifty_row.percent_change, 2.01);
+        assert_eq!(nifty_row.ca_ex_date, Some("19-Jun-2026".to_string()));
+        assert_eq!(
+            nifty_row.ca_purpose,
+            Some("Dividend - Rs 2.10 Per Share".to_string())
+        );
+
+        let bank_row = parsed
+            .bank_nifty
+            .data
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_row("BANKNIFTY", "gainers");
+        assert_eq!(bank_row.ca_ex_date, None);
+        assert_eq!(bank_row.ca_purpose, None);
+    }
+
+    // Confirmed live: `net_price` and `perChange` diverge on some rows
+    // (e.g. NIFTYNEXT50's BAJAJHLDNG: net_price 1.54 vs perChange 0.96), so
+    // both fields are kept rather than treated as a duplicate.
+    #[test]
+    fn market_mover_change_and_percent_change_are_not_always_equal() {
+        const DIVERGENT: &str = r#"{"data":[
+            {"symbol":"BAJAJHLDNG","series":"EQ","open_price":160,"high_price":161,
+             "low_price":159,"ltp":161,"prev_price":159.46,"net_price":1.54,
+             "trade_quantity":100,"turnover":16.1,"market_type":"N",
+             "ca_ex_dt":"-","ca_purpose":"-","perChange":0.96}
+        ]}"#;
+        let bucket: MoverBucket = serde_json::from_str(DIVERGENT).unwrap();
+        let row = bucket
+            .data
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_row("NIFTYNEXT50", "gainers");
+
+        assert_eq!(row.change, 1.54);
+        assert_eq!(row.percent_change, 0.96);
     }
 }

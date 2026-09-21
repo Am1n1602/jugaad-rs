@@ -35,7 +35,9 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`live-fo`](#live-fo) - download a live snapshot of NIFTY index futures/options
 - [`block-deal-session`](#block-deal-session) - download today's block deals (pre-open and mid-day sessions)
 - [`eq-derivative-turnover`](#eq-derivative-turnover) - download NSE's top-20 F&O turnover leaderboards
+- [`market-movers`](#market-movers) - download top gainers/losers across all 7 index/security scopes
 - [`stock-quote`](#stock-quote) - download a stock's live quote, including order book depth
+- [`stock-chart`](#stock-chart) - download a stock's intraday or historical price chart
 - [`derivative-quote`](#derivative-quote) - download every F&O contract for a symbol
 - [`index-quote`](#index-quote) - download a single index's live value, volume and turnover
 - [`option-chain`](#option-chain) - download an index or equity's option chain
@@ -935,6 +937,59 @@ this command flattens them into one CSV tagged by this column.
 
 ---
 
+## `market-movers`
+
+Downloads NSE's top-gainers/top-losers lists across all seven of its
+index/security scopes (NIFTY 50, BANK NIFTY, NIFTY NEXT 50, Securities >
+Rs 20, Securities < Rs 20, F&O Securities, All Securities) and saves them
+as one CSV, one row per stock per scope per direction.
+
+```bash
+jugaad market-movers [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/market_movers.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad market-movers
+```
+
+```
+Saved market movers to data/nse/market_movers.csv
+```
+
+### CSV columns
+
+`scope, direction, symbol, series, open, high, low, last_price, previous_close, change, percent_change, traded_quantity, turnover, market_type, ca_ex_date, ca_purpose`
+
+`scope` is one of NSE's own bucket keys - `NIFTY`, `BANKNIFTY`,
+`NIFTYNEXT50`, `SecGtr20` ("Securities > Rs 20"), `SecLwr20`
+("Securities < Rs 20"), `FOSec` ("F&O Securities"), or `allSec` ("All
+Securities"). `direction` is `"gainers"` or `"losers"`. NSE returns all
+seven scopes in one response per direction; this command flattens both
+directions and all seven scopes into one CSV tagged by these two
+columns.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Takes no arguments - always covers every scope and both directions (two
+  requests under the hood, one per direction).
+- `change`/`percent_change` are genuinely different fields, not a
+  duplicate pair, despite matching in most rows - confirmed live. See
+  [nse-findings.md](nse-findings.md#top_stocks-implemented-via-live-analysis-variations-not-gettoptenstock).
+- This replaces `getTopTenStock` (what Python's `top_stocks()` uses),
+  which only reliably returns its gainers field - see the findings doc
+  above for why.
+
+---
+
 ## `stock-quote`
 
 Downloads a stock's live quote - price/change, day and 52-week range,
@@ -985,6 +1040,65 @@ dropped.
   data mostly relevant to debt securities, not equities) that aren't
   included here. See
   [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+
+---
+
+## `stock-chart`
+
+Downloads a stock's intraday or historical price chart and saves it as a
+CSV, one row per point.
+
+```bash
+jugaad stock-chart [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Stock symbol, e.g. `SBIN` or `TCS` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-p, --period <PERIOD>` | `1d` | Time window: `1d`, `1w`, `1m`, `1y`, or `5y` |
+| `-o, --output <OUTPUT>` | `data/nse/stock_chart` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad stock-chart SBIN --period 1w
+```
+
+```
+Saved stock chart data to data/nse/stock_chart/SBIN-chart-1w.csv
+```
+
+### CSV columns
+
+`identifier, name, close_price, timestamp, price, session, change, percent_change`
+
+`identifier`/`name`/`close_price` describe the whole chart and are
+repeated on every row, since there's no separate summary row. `session`
+is `PO` (pre-open) or `NM` (normal market) - only meaningful for
+`--period 1d`; every other window reports `NM` on every row. `change`/
+`percent_change` are only populated for `--period 1d` too - `null` for
+every other window.
+
+### Notes
+
+- Only these five period values work - NSE's own chart page shows more
+  buttons (`3M`, `6M`, `3Y`, `ALL`), but those return a raw Java 500 error
+  through this endpoint rather than data.
+- Per-symbol (stock) charts only - an index name (e.g. `NIFTY 50`) does
+  not work through this endpoint; no working index-chart route has been
+  found yet.
+- Fails with a "not found" error for an unknown symbol - confirmed live,
+  this endpoint 404s rather than returning an empty result.
+- `timestamp` is already corrected to real IST wall-clock time - NSE's
+  raw epoch value is built from IST digits mislabeled as UTC. See
+  [nse-findings.md](nse-findings.md#chart_datatick_data-resolved-2026-09-21-same-root-cause-as-the-per-symbol-quotes).
 
 ---
 

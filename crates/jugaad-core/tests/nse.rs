@@ -685,3 +685,28 @@ async fn eq_derivative_turnover_raw_returns_both_leaderboards() {
             .all(|r| r.ranking == "value" || r.ranking == "volume")
     );
 }
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn market_movers_raw_returns_all_scopes_and_both_directions() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.market_movers_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().any(|r| r.direction == "gainers"));
+    assert!(rows.iter().any(|r| r.direction == "losers"));
+    for scope in [
+        "NIFTY",
+        "BANKNIFTY",
+        "NIFTYNEXT50",
+        "SecGtr20",
+        "SecLwr20",
+        "FOSec",
+        "allSec",
+    ] {
+        assert!(
+            rows.iter().any(|r| r.scope == scope),
+            "no rows for scope {scope}"
+        );
+    }
+}

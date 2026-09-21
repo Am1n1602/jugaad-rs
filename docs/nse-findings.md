@@ -359,9 +359,11 @@ reading that library's actual current source
 - **Market-wide derivative turnover** (`eq_derivative_turnover`):
   `GET /api/equity-stock?index=allcontracts` - a confusingly generic path
   name for what it actually returns.
-- **Block deals, top gainers/losers** (`block_deal_session`/`top_stocks`):
-  more `functionName` calls against the same NextApi URL
-  (`getBlockDealSession`, `getTopTenStock`).
+- **Block deals** (`block_deal_session`): another `functionName` call
+  against the same NextApi URL (`getBlockDealSession`).
+- **Top gainers/losers** (`top_stocks`): NextApi's `getTopTenStock` looks
+  like the right route but isn't - see the "`top_stocks` implemented via
+  `live-analysis-variations`" section below for the real one.
 
 Confirmed live via **plain `curl`**, not just Python, that
 `NextApi/apiClient/GetQuoteApi` and `equity-stock-indices` return normal
@@ -823,7 +825,70 @@ Additional findings while building it:
 - **`tick_data` was never a separate endpoint** - Python's own
   `tick_data` is just `return self.chart_data(symbol, indices)`, a plain
   alias. Not modeled separately here.
-- **Bonus, not yet built:** the same NextApi pattern resolves `top_stocks`
-  too - `functionName=getTopTenStock` (no extra params) returned real
-  gainers/losers/most-active data live. Still pending design (see
-  README), but confirmed reachable the same way `chart_data` was.
+- **`top_stocks`/`getTopTenStock` looked resolvable the same way, but
+  turned out to be a dead end - see the next section.** It reaches NSE
+  fine and returns a 200, but only its `topGainers` field ever came back
+  populated; the other 7 fields (`topLoosers`,
+  `mostActiveValue`/`mostActiveVolume`, `volumeSpurtsValue`,
+  `etfWatchValue`, `fiftyTwoWeekHigh`/`fiftyTwoWeekLow`) were empty across
+  three separate live checks a minute+ apart, market genuinely open.
+
+## `top_stocks` implemented via `live-analysis-variations`, not `getTopTenStock`
+
+Python's `top_stocks()` calls `getTopTenStock` via NextApi (see above),
+but live testing showed that endpoint only reliably returns
+`topGainers` - every other field it claims to have was empty on every
+check, market open, not a timing fluke. Checking NSE's own live "Top
+Gainers/Losers" page's network requests turned up the endpoint it
+actually uses instead:
+
+```
+GET /api/live-analysis-variations?index=gainers
+GET /api/live-analysis-variations?index=loosers
+```
+
+(`loosers` is NSE's own spelling on the wire, not a typo introduced
+here). Confirmed live: at the exact moment `getTopTenStock.topLoosers`
+was an empty array, this endpoint returned real losers data (e.g.
+`BHARTIARTL -2.97%`). This crate now implements `top_stocks` around this
+endpoint instead, as `NseLiveMarket::market_movers_raw` -
+`getTopTenStock` isn't used anywhere.
+
+Shape and quirks, confirmed live:
+
+- **One request returns all seven "buckets" for one direction, not one
+  bucket at a time.** The response has no `data` key - instead, seven
+  top-level keys keyed exactly as `legends` names them: `NIFTY`,
+  `BANKNIFTY`, `NIFTYNEXT50`, `SecGtr20` ("Securities > Rs 20"),
+  `SecLwr20` ("Securities < Rs 20"), `FOSec` ("F&O Securities"), `allSec`
+  ("All Securities") - each `{"data": [...], "timestamp": "..."}`. Two
+  requests (one per direction) are needed to get both gainers and
+  losers; `market_movers_raw` does both and flattens all 14
+  bucket/direction combinations into one `Vec` tagged by `scope`/
+  `direction`, the same convention used for block deals' two sessions
+  and the eq-turnover leaderboards.
+- **`net_price` and `perChange` are NOT the same field**, despite
+  matching in most rows - confirmed by scanning full responses: e.g.
+  NIFTYNEXT50's `BAJAJHLDNG` had `net_price: 1.54` (absolute price
+  change) vs `perChange: 0.96` (percent change) in the same row. Unlike
+  `LiveFoRow`'s genuinely-redundant turnover fields, both are kept here.
+  `perChange` is also the one field NSE spells in camelCase - every
+  other field on this row is `snake_case`.
+- **`ca_ex_dt`/`ca_purpose` use `"-"` as their "no corporate action"
+  placeholder**, not `null` or an empty string (confirmed live: 13 of
+  127 rows in one gainers sample) - modeled as `Option<String>` via a
+  small `deserialize_dash_as_none` helper, the same "normalize a
+  placeholder to `None` at the boundary" approach used for
+  `market-turnover`'s `-` and other endpoints' empty strings elsewhere in
+  this crate.
+- **An invalid `index` value doesn't 404 or error - it changes the whole
+  response shape.** `?index=notreal` returns HTTP 200 with
+  `{"data":"Missing index or key."}` (a bare string, not the seven-bucket
+  object). Since `index` is only ever one of two values this crate
+  controls internally (not user input), this doesn't need handling - it
+  just fails to deserialize into the expected shape, same rationale as
+  `ChartPeriod` staying an enum.
+- **NIFTY's own losers bucket had 17 rows, not 20** at the moment this
+  was checked (NIFTY was up overall that day, so fewer than 20 of its 50
+  constituents were down) - the "top 20" cap is a maximum, not a
+  guarantee, confirmed live rather than assumed.

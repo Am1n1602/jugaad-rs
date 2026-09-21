@@ -474,6 +474,18 @@ impl ChartPeriod {
             ChartPeriod::FiveYears => "5Y",
         }
     }
+
+    // Used to build a CSV filename - lowercase, matching this crate's other
+    // filename conventions rather than the API's own uppercase query value.
+    fn label(self) -> &'static str {
+        match self {
+            ChartPeriod::OneDay => "1d",
+            ChartPeriod::OneWeek => "1w",
+            ChartPeriod::OneMonth => "1m",
+            ChartPeriod::OneYear => "1y",
+            ChartPeriod::FiveYears => "5y",
+        }
+    }
 }
 
 /// One point on a stock's price chart.
@@ -549,6 +561,37 @@ fn chart_data_point_from_tuple(row: RawChartDataPoint) -> Result<ChartDataPoint>
         change,
         percent_change,
     })
+}
+
+/// One `ChartDataPoint` flattened for CSV, with the chart's `identifier`/
+/// `name`/`close_price` repeated on every row since there's no natural
+/// single-row summary alongside a time series.
+#[derive(Debug, Serialize)]
+struct ChartDataCsvRow<'a> {
+    identifier: &'a str,
+    name: &'a str,
+    close_price: f64,
+    timestamp: NaiveDateTime,
+    price: f64,
+    session: &'a str,
+    change: Option<f64>,
+    percent_change: Option<f64>,
+}
+
+fn chart_data_csv_rows(data: &ChartData) -> Vec<ChartDataCsvRow<'_>> {
+    data.points
+        .iter()
+        .map(|p| ChartDataCsvRow {
+            identifier: &data.identifier,
+            name: &data.name,
+            close_price: data.close_price,
+            timestamp: p.timestamp,
+            price: p.price,
+            session: &p.session,
+            change: p.change,
+            percent_change: p.percent_change,
+        })
+        .collect()
 }
 
 /// A single index's live value, volume and turnover.
@@ -1008,6 +1051,22 @@ impl NseQuote {
             close_price: raw.close_price,
             points,
         })
+    }
+
+    /// Fetches a stock's price chart the same way as `stock_chart_data_raw`,
+    /// then writes it as a CSV file into `dest` (a directory - the filename
+    /// is derived from `symbol` and `period`), one row per point. Returns
+    /// the path written.
+    pub async fn stock_chart_data_csv(
+        &self,
+        symbol: &str,
+        period: ChartPeriod,
+        dest: &Path,
+    ) -> Result<PathBuf> {
+        let data = self.stock_chart_data_raw(symbol, period).await?;
+        let path = dest.join(format!("{symbol}-chart-{}.csv", period.label()));
+        let csv_rows = chart_data_csv_rows(&data);
+        write_csv(&csv_rows, &path)
     }
 
     /// Fetches every F&O contract (all expiries, all strikes, futures and

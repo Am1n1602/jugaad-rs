@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use jugaad_core::nse::{
-    Instrument, NseArchives, NseCorporateResults, NseDailyReports, NseHistory, NseIndexHistory,
-    NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
+    ChartPeriod, Instrument, NseArchives, NseCorporateResults, NseDailyReports, NseHistory,
+    NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
 };
 
 #[derive(Debug, Parser)]
@@ -66,6 +66,35 @@ impl From<ResultPeriodArg> for ResultPeriod {
         match period {
             ResultPeriodArg::Annual => ResultPeriod::Annual,
             ResultPeriodArg::Quarterly => ResultPeriod::Quarterly,
+        }
+    }
+}
+
+/// Chart time window as accepted on the command line, mapped onto
+/// jugaad_core's `ChartPeriod`. Renamed to NSE's own short period codes
+/// (`1d`/`1w`/...) rather than clap's default kebab-case (`one-day`).
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum ChartPeriodArg {
+    #[value(name = "1d")]
+    OneDay,
+    #[value(name = "1w")]
+    OneWeek,
+    #[value(name = "1m")]
+    OneMonth,
+    #[value(name = "1y")]
+    OneYear,
+    #[value(name = "5y")]
+    FiveYears,
+}
+
+impl From<ChartPeriodArg> for ChartPeriod {
+    fn from(period: ChartPeriodArg) -> Self {
+        match period {
+            ChartPeriodArg::OneDay => ChartPeriod::OneDay,
+            ChartPeriodArg::OneWeek => ChartPeriod::OneWeek,
+            ChartPeriodArg::OneMonth => ChartPeriod::OneMonth,
+            ChartPeriodArg::OneYear => ChartPeriod::OneYear,
+            ChartPeriodArg::FiveYears => ChartPeriod::FiveYears,
         }
     }
 }
@@ -305,12 +334,29 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/eq_derivative_turnover.csv")]
         output: PathBuf,
     },
+    /// Download top gainers/losers across all 7 index/security scopes
+    MarketMovers {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/market_movers.csv")]
+        output: PathBuf,
+    },
     /// Download a stock's live quote (price, order book depth, volume)
     StockQuote {
         /// Stock symbol, e.g. SBIN or TCS
         symbol: String,
         /// Directory to save the CSV into
         #[arg(short, long, default_value = "data/nse/stock_quote")]
+        output: PathBuf,
+    },
+    /// Download a stock's intraday or historical price chart
+    StockChart {
+        /// Stock symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Time window: 1d, 1w, 1m, 1y, or 5y
+        #[arg(short, long, value_enum, default_value = "1d")]
+        period: ChartPeriodArg,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/stock_chart")]
         output: PathBuf,
     },
     /// Download every F&O contract (all expiries/strikes) for a symbol
@@ -586,6 +632,14 @@ async fn main() -> anyhow::Result<()> {
             let path = live.block_deal_session_csv(&output).await?;
             println!("Saved block deal session to {}", path.display());
         }
+        Command::MarketMovers { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.market_movers_csv(&output).await?;
+            println!("Saved market movers to {}", path.display());
+        }
         Command::EqDerivativeTurnover { output } => {
             if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
                 std::fs::create_dir_all(parent)?;
@@ -599,6 +653,18 @@ async fn main() -> anyhow::Result<()> {
             let quote = NseQuote::new()?;
             let path = quote.stock_quote_csv(&symbol, &output).await?;
             println!("Saved stock quote to {}", path.display());
+        }
+        Command::StockChart {
+            symbol,
+            period,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote
+                .stock_chart_data_csv(&symbol, period.into(), &output)
+                .await?;
+            println!("Saved stock chart data to {}", path.display());
         }
         Command::DerivativeQuote { symbol, output } => {
             std::fs::create_dir_all(&output)?;

@@ -25,10 +25,11 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Live NIFTY futures/options snapshot | `NseLiveMarket::live_fo_snapshot_raw`/`live_fo_snapshot_csv` |
 | Today's block deals (pre-open and mid-day sessions) | `NseLiveMarket::block_deal_session_raw`/`block_deal_session_csv` |
 | F&O turnover leaderboards (top-20 by value and by volume) | `NseLiveMarket::eq_derivative_turnover_raw`/`eq_derivative_turnover_csv` |
+| Top gainers/losers across 7 index/security scopes | `NseLiveMarket::market_movers_raw`/`market_movers_csv` |
 | Live stock quote (price, order book depth, volume) | `NseQuote::stock_quote_raw`/`stock_quote_csv` |
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
-| Stock intraday/historical price chart | `NseQuote::stock_chart_data_raw` |
+| Stock intraday/historical price chart | `NseQuote::stock_chart_data_raw`/`stock_chart_data_csv` |
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
 | Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
@@ -46,6 +47,9 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 **Data jugaad-data doesn't have at all:**
 - **Financial-results filings + XBRL/HTML download** (`NseCorporateResults`) - jugaad-data's `NSELive` wraps the newer SEBI Integrated Filing framework (`corporate_integrated_filing`), but not the older Regulation 33 filing type this crate covers, which is the only source for machine-readable financials before that framework existed (roughly FY2024-25). Company financials going back to FY2012-13 (for TCS; likely similar for other long-listed companies) aren't reachable through jugaad-data at all.
 
+**Data jugaad-data's own equivalent doesn't actually return:**
+- **Top gainers/losers** (`market_movers_raw`) - jugaad-data's `top_stocks()` calls NSE's `getTopTenStock`, confirmed live to only ever populate its `topGainers` field; every other field it claims to have (including `topLoosers`) came back empty across repeated checks with the market open. This crate implements the same feature against `live-analysis-variations` instead - the endpoint NSE's own live gainers/losers page actually calls - found by inspecting that page's network requests after `getTopTenStock` turned out to be half-dead.
+
 **Real correctness issues avoided or caught**
 - **A live date bug jugaad-data actually has.** NSE's stock-history API returns two date fields for the same row - `mTIMESTAMP` (correct) and `CH_TIMESTAMP` (a UTC-shifted timestamp that lands on the wrong calendar day if read directly). jugaad-data uses `CH_TIMESTAMP`; this crate uses `mTIMESTAMP` instead, confirmed live.
 - **The same UTC-shift bug, found again in a second endpoint.** The stock chart-data endpoint's per-point epoch timestamps have the identical problem as `CH_TIMESTAMP` above - built from IST wall-clock digits but labeled as UTC. Caught by comparing a live point's timestamp against a same-moment live quote's `last_update_time` (genuine IST) and finding a ~5:30 gap; corrected before being exposed publicly, so this crate never emits the wrong instant in the first place.
@@ -62,8 +66,7 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 
 ## Pending
 
-- **A `dataframe`/`polars` Cargo feature** - not started; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source. An earlier, empty placeholder for this feature flag was removed as dead config - it'll be added back in the same change that actually implements the conversions
-- **`top_stocks`** (top gainers/losers/most-active) - confirmed reachable live via the same NextApi pattern that fixed `stock_chart_data_raw`, not yet designed/built; only one of its 8 sub-lists has been shape-checked so far.
+- **A `dataframe`/`polars` Cargo feature** - not started; would add optional `Vec<Row>` → `polars::DataFrame` conversions on top of the fetchers that already exist, not a new data source.
 
 ## Requirements
 
@@ -85,12 +88,12 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (29 commands
+Run `jugaad --help` for the full, always-current command list (31 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
 history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
-market status/index snapshot/turnover/F&O/block deals, live per-symbol
-quotes/option chains, and financial-results filings). A few representative
-examples:
+market status/index snapshot/turnover/F&O/block deals/F&O turnover
+leaderboards/market movers, live per-symbol quotes/charts/option chains,
+and financial-results filings). A few representative examples:
 
 ```bash
 # Whole-market bhavcopy for one day
@@ -112,7 +115,7 @@ jugaad stock-quote SBIN
 jugaad option-chain NIFTY --kind index
 ```
 
-Every command writes a CSV to a `data/nse/...` directory by default (configurable with `--output`). See [`docs/cli.md`](docs/cli.md) for the full reference: every command, flag, default, and behavior (like what happens on a weekend or an unknown symbol).
+Every command writes a CSV under `data/nse/...` by default (configurable with `--output`) - most take a directory and derive the filename from the arguments given (e.g. the symbol), while whole-market live snapshots (`market-status`, `eq-derivative-turnover`, `market-movers`, etc.) take a full file path instead, since there's no per-call argument to name the file from. See [`docs/cli.md`](docs/cli.md) for the full reference: every command, flag, default, and behavior (like what happens on a weekend or an unknown symbol).
 
 ## Using it as a library
 
