@@ -955,3 +955,65 @@ window):
   promoting it out of `corporate_results.rs`'s private methods, matching
   the same "extract once a second consumer appears" convention already
   used for `write_csv`/`NEXTAPI_URL`/`deserialize_lenient_u64`.
+
+## `top_stocks`'s remaining categories: most-active equities, volume gainers, 52-week high/low, large deals
+
+`market_movers_raw` only ever covered gainers/losers. The other four
+categories from the original `top_stocks`/`getTopTenStock` list turned
+out to live on NSE's site as four more "Live Analysis" pages, each with
+its own dedicated endpoint - found the same way `live-analysis-variations`
+was found for gainers/losers: opening the real page and reading its
+network requests.
+
+- **Most Active Equities**: `GET /api/live-analysis-most-active-securities?index=value|volume`
+  (top-20 by traded value, top-20 by traded volume - two requests,
+  flattened into one `Vec` tagged by `ranking`, same convention as
+  `eq_derivative_turnover_raw`). `closePrice` is confirmed live to
+  always be `0` (checked both rankings) - a dead placeholder, dropped.
+  `exDate` uses `"-"` as its no-corporate-action placeholder (same
+  convention as `MarketMoverRow::ca_ex_date`); `purpose` is plain
+  `null`/string.
+- **Volume Gainers**: `GET /api/live-analysis-volume-gainers` - stocks
+  trading well above their 1-week/2-week average volume. Clean shape,
+  no nulls or type quirks found in the sample checked.
+- **52-Week High/Low**: two entirely separate endpoints, not one
+  endpoint with a direction parameter - `GET
+  /api/live-analysis-data-52weekhighstock` and `.../...52weeklowstock`.
+  Flattened into one `Vec` tagged by `direction`. Two real bugs caught
+  by testing live (not by inspecting a single captured sample):
+  - `comapnyName` - NSE's own typo (missing an "n") - confirmed to be
+    spelled this way on **every** row, both directions; not a one-off
+    typo in a single record.
+  - `prevClose` is sent as a JSON string on this endpoint, unlike every
+    numeric sibling field on the same row (plain JSON numbers).
+  - **`prevHLDate` can be the literal string `"-"` instead of a real
+    date**, for a recently-listed stock with no genuine previous
+    52-week extreme yet (confirmed live: 3 of 125 high rows, 3 of 44
+    low rows on one check, always the same handful of newly-listed
+    symbols, always paired with `prev52WHL: 0`). This was modeled as a
+    required `NaiveDate` at first and broke live within the same
+    session - the unit tests built from one hand-picked sample record
+    didn't catch it because that sample happened to have a real date.
+    Fixed by making the field `Option<NaiveDate>` and adding a second
+    test built from the actual failing live response. Lesson: a single
+    captured sample proves a shape parses, not that every row will -
+    still worth running the real live integration test before calling
+    a feature done, even after the unit tests pass.
+  - The top-level `high`/`low` counts the raw response also carries are
+    dropped - confirmed live, both are just `data.len()`.
+- **Large Deals**: `GET /api/snapshot-capital-market-largedeal` - a
+  single response carrying three parallel lists (`BULK_DEALS_DATA`,
+  `SHORT_DEALS_DATA`, `BLOCK_DEALS_DATA`), all with the identical row
+  shape, flattened into one `Vec` tagged by `deal_type`. A genuinely
+  different, simpler view of deals than `NseArchives::bulk_deals_raw`/
+  `NseLiveMarket::block_deal_session_raw` (client identity and buy/sell
+  side instead of live OHLC-style pricing) - and the only source in this
+  crate for short deals at all. Confirmed live: `buySell`/`clientName`/
+  `remarks`/`watp` are **always** `null` for short deals specifically
+  (133 of 133 rows checked) - short-sale counterparty/side/price isn't
+  disclosed through this endpoint, unlike bulk/block deals, where only
+  `remarks` is sometimes null. `qty`/`watp` are numeric-looking JSON
+  strings, not plain numbers - parsed with small dedicated
+  deserializers. The top-level `BULK_DEALS`/`SHORT_DEALS`/`BLOCK_DEALS`
+  counts are dropped for the same reason as 52-week high/low's `high`/
+  `low` - just `data.len()`.

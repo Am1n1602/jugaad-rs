@@ -26,6 +26,10 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Today's block deals (pre-open and mid-day sessions) | `NseLiveMarket::block_deal_session_raw`/`block_deal_session_csv` |
 | F&O turnover leaderboards (top-20 by value and by volume) | `NseLiveMarket::eq_derivative_turnover_raw`/`eq_derivative_turnover_csv` |
 | Top gainers/losers across 7 index/security scopes | `NseLiveMarket::market_movers_raw`/`market_movers_csv` |
+| Most active equities (by value and by volume) | `NseLiveMarket::most_active_equities_raw` |
+| Volume gainers | `NseLiveMarket::volume_gainers_raw` |
+| 52-week highs/lows | `NseLiveMarket::fifty_two_week_raw` |
+| Large deals (bulk, short, block) | `NseLiveMarket::large_deals_raw` |
 | Live stock quote (price, order book depth, volume) | `NseQuote::stock_quote_raw`/`stock_quote_csv` |
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
@@ -72,7 +76,6 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 ## Pending
 
 - **Index price charts** - `stock_chart_data_raw`'s underlying endpoint only accepts stock symbols; no working index-chart route has been found yet (see [`docs/nse-findings.md`](docs/nse-findings.md#chart_datatick_data-resolved-2026-09-21-same-root-cause-as-the-per-symbol-quotes) for what's been tried).
-- **The rest of NSE's "Live Analysis" pages** - `market_movers_raw` covers gainers/losers; most-active equities, volume gainers, 52-week high/low, and large deals are separate pages on NSE's site, confirmed to exist, but their backing endpoints haven't been found yet.
 - **The newer SEBI Integrated Filing framework** (`corporate_integrated_filing`) - the one thing jugaad-data's `NSELive` covers that this crate doesn't; this crate instead covers older Regulation 33 filings jugaad-data can't reach (see [What this adds beyond jugaad-data](#what-this-adds-beyond-jugaad-data) above).
 - **Smaller per-symbol/reference endpoints** - `holiday_list` (trading holiday calendar), `pre_open_market`, `reg_details` (regulatory/compliance details), `index_list` (which indices a symbol belongs to), `symbol_meta`/`symbol_name`, `yearwise_data` - none investigated yet.
 - **Whole-market index bhavcopy** (`bhavcopy_index_raw`, `NSEIndicesArchives`) - a daily file of every index's closing values, distinct from the per-index OHLC history already built.
@@ -97,11 +100,12 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (34 commands
+Run `jugaad --help` for the full, always-current command list (38 commands
 as of this writing - bhavcopy in three variants, stock/index/derivatives
 history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
 market status/index snapshot/turnover/F&O/block deals/F&O turnover
-leaderboards/market movers, live per-symbol quotes/charts/option chains,
+leaderboards/market movers/most-active/volume-gainers/52-week-high-low/
+large-deals, live per-symbol quotes/charts/option chains,
 financial-results filings, and corporate announcements). A few
 representative examples:
 
@@ -179,6 +183,7 @@ cargo test -p jugaad-core --features dataframe
 ```
 
 If that (or `cargo test --workspace --all-features`) intermittently fails with errors like `crate ... required to be available in rlib format, but was not found in this form` for a different, seemingly unrelated crate each run, it's very likely cargo's default job count (one per logical CPU) exceeding available RAM once `polars`'s large dependency tree is in the build - not a real compile error. Cap parallelism in `.cargo/config.toml`: `[build]` / `jobs = 4` (or pass `--jobs 4` on the command line) and retry.
+
 
 ## Documentation
 

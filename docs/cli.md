@@ -36,6 +36,10 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`block-deal-session`](#block-deal-session) - download today's block deals (pre-open and mid-day sessions)
 - [`eq-derivative-turnover`](#eq-derivative-turnover) - download NSE's top-20 F&O turnover leaderboards
 - [`market-movers`](#market-movers) - download top gainers/losers across all 7 index/security scopes
+- [`most-active-equities`](#most-active-equities) - download the most active equities leaderboards (by value and by volume)
+- [`volume-gainers`](#volume-gainers) - download stocks trading well above their recent average volume
+- [`fifty-two-week`](#fifty-two-week) - download stocks hitting a new 52-week high or low
+- [`large-deals`](#large-deals) - download today's bulk, short, and block deals
 - [`stock-quote`](#stock-quote) - download a stock's live quote, including order book depth
 - [`stock-chart`](#stock-chart) - download a stock's intraday or historical price chart
 - [`derivative-quote`](#derivative-quote) - download every F&O contract for a symbol
@@ -990,6 +994,175 @@ columns.
 - This replaces `getTopTenStock` (what Python's `top_stocks()` uses),
   which only reliably returns its gainers field - see the findings doc
   above for why.
+
+---
+
+## `most-active-equities`
+
+Downloads NSE's "Most Active Equities" leaderboards - top 20 by traded
+value and top 20 by traded volume - and saves them as one CSV, one row
+per stock per ranking.
+
+```bash
+jugaad most-active-equities [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/most_active_equities.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad most-active-equities
+```
+
+```
+Saved most active equities to data/nse/most_active_equities.csv
+```
+
+### CSV columns
+
+`ranking, symbol, identifier, last_price, percent_change, quantity_traded, total_traded_volume, total_traded_value, previous_close, ex_date, purpose, year_high, year_low, change, open, day_high, day_low, last_update_time`
+
+`ranking` is `"value"` or `"volume"` - NSE returns these as two separate
+top-20 lists; this command flattens them into one CSV tagged by this
+column, the same convention as `market-movers`' `direction` column.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Takes no arguments - always covers both rankings (two requests under
+  the hood, one per ranking).
+
+---
+
+## `volume-gainers`
+
+Downloads NSE's "Volume Gainers" list - stocks trading well above their
+1-week/2-week average volume - and saves it as a CSV.
+
+```bash
+jugaad volume-gainers [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/volume_gainers.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad volume-gainers
+```
+
+```
+Saved volume gainers to data/nse/volume_gainers.csv
+```
+
+### CSV columns
+
+`symbol, company_name, volume, week1_avg_volume, week1_volume_change_pct, week2_avg_volume, week2_volume_change_pct, last_price, percent_change, turnover`
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+
+---
+
+## `fifty-two-week`
+
+Downloads stocks hitting a new 52-week high or low and saves them as one
+CSV, one row per stock per direction.
+
+```bash
+jugaad fifty-two-week [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/fifty_two_week.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad fifty-two-week
+```
+
+```
+Saved 52-week highs/lows to data/nse/fifty_two_week.csv
+```
+
+### CSV columns
+
+`direction, symbol, company_name, series, last_price, change, percent_change, new_52_week_value, previous_52_week_value, previous_close, previous_52_week_date`
+
+`direction` is `"high"` or `"low"` - NSE serves these from two entirely
+separate endpoints, not one endpoint with a direction parameter; this
+command flattens both into one CSV tagged by this column.
+`previous_52_week_date` is blank for a recently-listed stock with no
+real previous 52-week extreme yet - confirmed live, NSE sends the
+literal string `"-"` in that case (always alongside a
+`previous_52_week_value` of exactly `0`) rather than omitting the field.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Takes no arguments - always covers both directions (two requests under
+  the hood, against two different endpoints).
+
+---
+
+## `large-deals`
+
+Downloads today's large deals - bulk, short, and block deals - and saves
+them as one CSV, one row per deal per deal type.
+
+```bash
+jugaad large-deals [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/large_deals.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad large-deals
+```
+
+```
+Saved large deals to data/nse/large_deals.csv
+```
+
+### CSV columns
+
+`deal_type, symbol, company_name, client_name, buy_sell, quantity, weighted_avg_price, remarks, date`
+
+`deal_type` is `"bulk"`, `"short"`, or `"block"` - NSE returns three
+separate lists with an identical row shape; this command flattens them
+into one CSV tagged by this column. A different, simpler view of deals
+than `block-deal-session`/`bulk-deals` (client identity and buy/sell
+side instead of live OHLC-style pricing), and the only source in this
+crate for short deals at all. `client_name`/`buy_sell`/
+`weighted_avg_price` are always blank for short deals specifically -
+confirmed live, that information isn't disclosed through this endpoint
+for short deals, unlike bulk/block deals.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Takes no arguments - always covers all three deal types in one
+  request.
 
 ---
 

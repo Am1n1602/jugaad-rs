@@ -782,3 +782,46 @@ async fn market_movers_raw_returns_all_scopes_and_both_directions() {
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn most_active_equities_raw_returns_both_rankings() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.most_active_equities_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().any(|r| r.ranking == "value"));
+    assert!(rows.iter().any(|r| r.ranking == "volume"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn volume_gainers_raw_fetches_real_rows() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.volume_gainers_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| !r.symbol.is_empty()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn fifty_two_week_raw_returns_both_directions() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.fifty_two_week_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().any(|r| r.direction == "high"));
+    assert!(rows.iter().any(|r| r.direction == "low"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn large_deals_raw_returns_all_three_deal_types() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.large_deals_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().any(|r| r.deal_type == "bulk"));
+    assert!(rows.iter().any(|r| r.deal_type == "short"));
+}

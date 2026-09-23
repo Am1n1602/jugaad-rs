@@ -341,6 +341,32 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/market_movers.csv")]
         output: PathBuf,
     },
+    /// Download NSE's "Most Active Equities" leaderboards (by traded
+    /// value and by traded volume)
+    MostActiveEquities {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/most_active_equities.csv")]
+        output: PathBuf,
+    },
+    /// Download NSE's "Volume Gainers" list (stocks trading well above
+    /// their recent average volume)
+    VolumeGainers {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/volume_gainers.csv")]
+        output: PathBuf,
+    },
+    /// Download stocks hitting a new 52-week high or low
+    FiftyTwoWeek {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/fifty_two_week.csv")]
+        output: PathBuf,
+    },
+    /// Download today's large deals (bulk, short, and block deals)
+    LargeDeals {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/large_deals.csv")]
+        output: PathBuf,
+    },
     /// Download a stock's live quote (price, order book depth, volume)
     StockQuote {
         /// Stock symbol, e.g. SBIN or TCS
@@ -489,8 +515,31 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+// clap's derive macro generates recursive command-matching code sized to
+// the number of subcommands; in an unoptimized debug build (no inlining
+// or tail-call elimination), a CLI this size can overflow the default
+// ~1MB Windows main-thread stack before even reaching `Cli::parse()` -
+// confirmed live: `jugaad version` (no args at all) crashed with
+// STATUS_STACK_OVERFLOW once the subcommand count grew past ~30, and
+// only in debug builds (`--release` never reproduced it). Running
+// everything on an explicitly larger stack sidesteps the limit rather
+// than relying on release-only builds or shrinking the CLI.
+fn main() -> anyhow::Result<()> {
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(run_cli)?
+        .join()
+        .map_err(|panic| anyhow::anyhow!("jugaad worker thread panicked: {panic:?}"))?
+}
+
+fn run_cli() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Version => println!("jugaad-core {}", jugaad_core::version()),
@@ -689,6 +738,38 @@ async fn main() -> anyhow::Result<()> {
             let live = NseLiveMarket::new()?;
             let path = live.market_movers_csv(&output).await?;
             println!("Saved market movers to {}", path.display());
+        }
+        Command::MostActiveEquities { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.most_active_equities_csv(&output).await?;
+            println!("Saved most active equities to {}", path.display());
+        }
+        Command::VolumeGainers { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.volume_gainers_csv(&output).await?;
+            println!("Saved volume gainers to {}", path.display());
+        }
+        Command::FiftyTwoWeek { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.fifty_two_week_csv(&output).await?;
+            println!("Saved 52-week highs/lows to {}", path.display());
+        }
+        Command::LargeDeals { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.large_deals_csv(&output).await?;
+            println!("Saved large deals to {}", path.display());
         }
         Command::EqDerivativeTurnover { output } => {
             if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {

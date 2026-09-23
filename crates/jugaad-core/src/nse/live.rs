@@ -664,6 +664,324 @@ struct MoverResponse {
     all_sec: MoverBucket,
 }
 
+/// One stock in NSE's "Most Active Equities" leaderboard, ranked either
+/// by traded value or by traded volume.
+///
+/// Drops `closePrice`, confirmed live to always be `0` across every row
+/// checked (both rankings) - a dead placeholder, same treatment as other
+/// confirmed-always-zero/null fields elsewhere in this crate.
+#[derive(Debug, Serialize)]
+pub struct MostActiveEquityRow {
+    pub ranking: String,
+    pub symbol: String,
+    pub identifier: String,
+    pub last_price: f64,
+    pub percent_change: f64,
+    pub quantity_traded: u64,
+    pub total_traded_volume: u64,
+    pub total_traded_value: f64,
+    pub previous_close: f64,
+    // "-" on the wire when there's no upcoming corporate action -
+    // confirmed live, same convention as `MarketMoverRow::ca_ex_date`.
+    pub ex_date: Option<String>,
+    pub purpose: Option<String>,
+    pub year_high: f64,
+    pub year_low: f64,
+    pub change: f64,
+    pub open: f64,
+    pub day_high: f64,
+    pub day_low: f64,
+    pub last_update_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMostActiveEquity {
+    symbol: String,
+    identifier: String,
+    #[serde(rename = "lastPrice")]
+    last_price: f64,
+    #[serde(rename = "pChange")]
+    percent_change: f64,
+    #[serde(rename = "quantityTraded")]
+    quantity_traded: u64,
+    #[serde(rename = "totalTradedVolume")]
+    total_traded_volume: u64,
+    #[serde(rename = "totalTradedValue")]
+    total_traded_value: f64,
+    #[serde(rename = "previousClose")]
+    previous_close: f64,
+    #[serde(rename = "exDate", deserialize_with = "deserialize_dash_as_none")]
+    ex_date: Option<String>,
+    purpose: Option<String>,
+    #[serde(rename = "yearHigh")]
+    year_high: f64,
+    #[serde(rename = "yearLow")]
+    year_low: f64,
+    change: f64,
+    open: f64,
+    #[serde(rename = "dayHigh")]
+    day_high: f64,
+    #[serde(rename = "dayLow")]
+    day_low: f64,
+    #[serde(rename = "lastUpdateTime")]
+    last_update_time: String,
+}
+
+impl RawMostActiveEquity {
+    fn into_row(self, ranking: &str) -> MostActiveEquityRow {
+        MostActiveEquityRow {
+            ranking: ranking.to_string(),
+            symbol: self.symbol,
+            identifier: self.identifier,
+            last_price: self.last_price,
+            percent_change: self.percent_change,
+            quantity_traded: self.quantity_traded,
+            total_traded_volume: self.total_traded_volume,
+            total_traded_value: self.total_traded_value,
+            previous_close: self.previous_close,
+            ex_date: self.ex_date,
+            purpose: self.purpose,
+            year_high: self.year_high,
+            year_low: self.year_low,
+            change: self.change,
+            open: self.open,
+            day_high: self.day_high,
+            day_low: self.day_low,
+            last_update_time: self.last_update_time,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct MostActiveEquityResponse {
+    data: Vec<RawMostActiveEquity>,
+}
+
+/// One stock in NSE's "Volume Gainers" list - today's volume compared
+/// against its 1-week and 2-week averages.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VolumeGainerRow {
+    pub symbol: String,
+    #[serde(rename(deserialize = "companyName"))]
+    pub company_name: String,
+    pub volume: u64,
+    #[serde(rename(deserialize = "week1AvgVolume"))]
+    pub week1_avg_volume: u64,
+    #[serde(rename(deserialize = "week1volChange"))]
+    pub week1_volume_change_pct: f64,
+    #[serde(rename(deserialize = "week2AvgVolume"))]
+    pub week2_avg_volume: u64,
+    #[serde(rename(deserialize = "week2volChange"))]
+    pub week2_volume_change_pct: f64,
+    #[serde(rename(deserialize = "ltp"))]
+    pub last_price: f64,
+    #[serde(rename(deserialize = "pChange"))]
+    pub percent_change: f64,
+    pub turnover: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct VolumeGainersResponse {
+    data: Vec<VolumeGainerRow>,
+}
+
+/// One stock hitting a new 52-week high or low.
+///
+/// `company_name` corrects NSE's own field-name typo ("comapnyName", not
+/// "companyName") - confirmed live, only this endpoint misspells it.
+/// Drops the top-level `high`/`low` counts the raw response also carries:
+/// both are just `data.len()`, confirmed live.
+#[derive(Debug, Serialize)]
+pub struct FiftyTwoWeekRow {
+    pub direction: String,
+    pub symbol: String,
+    pub company_name: String,
+    pub series: String,
+    pub last_price: f64,
+    pub change: f64,
+    pub percent_change: f64,
+    pub new_52_week_value: f64,
+    pub previous_52_week_value: f64,
+    pub previous_close: f64,
+    // `None` for a recently-listed stock with no real previous 52-week
+    // extreme yet - confirmed live, NSE sends "-" rather than omitting
+    // the field or sending `null`.
+    pub previous_52_week_date: Option<NaiveDate>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawFiftyTwoWeek {
+    symbol: String,
+    #[serde(rename = "comapnyName")]
+    company_name: String,
+    series: String,
+    ltp: f64,
+    change: f64,
+    #[serde(rename = "pChange")]
+    percent_change: f64,
+    #[serde(rename = "new52WHL")]
+    new_52_week_value: f64,
+    #[serde(rename = "prev52WHL")]
+    previous_52_week_value: f64,
+    // Confirmed live: a JSON string here, unlike every numeric sibling on
+    // this row, which are plain JSON numbers.
+    #[serde(rename = "prevClose", deserialize_with = "deserialize_string_f64")]
+    previous_close: f64,
+    // "-" on the wire for a recently-listed stock with no real previous
+    // 52-week extreme to compare against - confirmed live, always
+    // alongside a `prev52WHL` of exactly `0` in that case.
+    #[serde(rename = "prevHLDate", deserialize_with = "deserialize_nse_date_opt")]
+    previous_52_week_date: Option<NaiveDate>,
+}
+
+impl RawFiftyTwoWeek {
+    fn into_row(self, direction: &str) -> FiftyTwoWeekRow {
+        FiftyTwoWeekRow {
+            direction: direction.to_string(),
+            symbol: self.symbol,
+            company_name: self.company_name,
+            series: self.series,
+            last_price: self.ltp,
+            change: self.change,
+            percent_change: self.percent_change,
+            new_52_week_value: self.new_52_week_value,
+            previous_52_week_value: self.previous_52_week_value,
+            previous_close: self.previous_close,
+            previous_52_week_date: self.previous_52_week_date,
+        }
+    }
+}
+
+fn deserialize_string_f64<'de, D>(deserializer: D) -> std::result::Result<f64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    raw.parse().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_nse_date_opt<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<NaiveDate>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    if raw == "-" {
+        return Ok(None);
+    }
+    NaiveDate::parse_from_str(&raw, "%d-%b-%Y")
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Deserialize)]
+struct FiftyTwoWeekResponse {
+    data: Vec<RawFiftyTwoWeek>,
+}
+
+/// One large deal - a bulk deal, short deal, or block deal. NSE returns
+/// three separate lists in one response, all with the identical row
+/// shape; `large_deals_raw` flattens them into one `Vec` tagged by
+/// `deal_type`, the same convention used for `BlockDealRow`/
+/// `EqDerivativeTurnoverRow`/`MarketMoverRow`.
+///
+/// `client_name`/`buy_sell`/`weighted_avg_price` are all always `null`
+/// for short deals specifically (133 of 133 rows checked) - short-sale
+/// counterparty/side/price apparently isn't disclosed through this
+/// endpoint, unlike bulk/block deals.
+#[derive(Debug, Serialize)]
+pub struct LargeDealRow {
+    pub deal_type: String,
+    pub symbol: String,
+    pub company_name: String,
+    pub client_name: Option<String>,
+    pub buy_sell: Option<String>,
+    pub quantity: u64,
+    pub weighted_avg_price: Option<f64>,
+    pub remarks: Option<String>,
+    pub date: NaiveDate,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawLargeDeal {
+    symbol: String,
+    #[serde(rename = "name")]
+    company_name: String,
+    #[serde(rename = "clientName")]
+    client_name: Option<String>,
+    #[serde(rename = "buySell")]
+    buy_sell: Option<String>,
+    #[serde(deserialize_with = "deserialize_numeric_string_u64")]
+    qty: u64,
+    #[serde(
+        rename = "watp",
+        deserialize_with = "deserialize_numeric_string_f64_opt"
+    )]
+    weighted_avg_price: Option<f64>,
+    // `null` or the literal `"-"` depending on the deal - both mean "no
+    // remark", confirmed live.
+    #[serde(deserialize_with = "deserialize_dash_or_null_as_none")]
+    remarks: Option<String>,
+    #[serde(deserialize_with = "deserialize_nse_date")]
+    date: NaiveDate,
+}
+
+impl RawLargeDeal {
+    fn into_row(self, deal_type: &str) -> LargeDealRow {
+        LargeDealRow {
+            deal_type: deal_type.to_string(),
+            symbol: self.symbol,
+            company_name: self.company_name,
+            client_name: self.client_name,
+            buy_sell: self.buy_sell,
+            quantity: self.qty,
+            weighted_avg_price: self.weighted_avg_price,
+            remarks: self.remarks,
+            date: self.date,
+        }
+    }
+}
+
+fn deserialize_numeric_string_u64<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    raw.parse().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_numeric_string_f64_opt<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: Option<String> = Option::deserialize(deserializer)?;
+    raw.map(|s| s.parse().map_err(serde::de::Error::custom))
+        .transpose()
+}
+
+fn deserialize_dash_or_null_as_none<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: Option<String> = Option::deserialize(deserializer)?;
+    Ok(raw.filter(|s| s != "-"))
+}
+
+#[derive(Debug, Deserialize)]
+struct LargeDealResponse {
+    #[serde(rename = "BULK_DEALS_DATA")]
+    bulk: Vec<RawLargeDeal>,
+    #[serde(rename = "SHORT_DEALS_DATA")]
+    short: Vec<RawLargeDeal>,
+    #[serde(rename = "BLOCK_DEALS_DATA")]
+    block: Vec<RawLargeDeal>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NseLiveMarket {
     client: Client,
@@ -957,6 +1275,163 @@ impl NseLiveMarket {
     /// for why this takes a full file path and always overwrites.
     pub async fn market_movers_csv(&self, path: &Path) -> Result<PathBuf> {
         let rows = self.market_movers_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches NSE's "Most Active Equities" leaderboards - top 20 by
+    /// traded value and top 20 by traded volume - flattened into one
+    /// `Vec` tagged by `ranking`. Two requests under the hood, one per
+    /// ranking.
+    pub async fn most_active_equities_raw(&self) -> Result<Vec<MostActiveEquityRow>> {
+        let mut rows = Vec::new();
+
+        for ranking in ["value", "volume"] {
+            let response = self
+                .client
+                .get(format!(
+                    "{BASE_URL}/api/live-analysis-most-active-securities"
+                ))
+                .query(&[("index", ranking)])
+                .send()
+                .await?;
+
+            match response.status() {
+                StatusCode::OK => {}
+                StatusCode::FORBIDDEN => return Err(Error::Blocked),
+                status => return Err(Error::UnexpectedStatus(status)),
+            }
+
+            let parsed: MostActiveEquityResponse = response.json().await.map_err(|e| {
+                Error::Parse(format!(
+                    "could not parse most active equities response: {e}"
+                ))
+            })?;
+
+            rows.extend(parsed.data.into_iter().map(|raw| raw.into_row(ranking)));
+        }
+
+        Ok(rows)
+    }
+
+    /// Fetches the leaderboards the same way as `most_active_equities_raw`,
+    /// then writes them as a CSV file to `path` exactly - see
+    /// `market_status_csv` for why this takes a full file path and always
+    /// overwrites.
+    pub async fn most_active_equities_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.most_active_equities_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches NSE's "Volume Gainers" list - stocks trading well above
+    /// their recent average volume.
+    pub async fn volume_gainers_raw(&self) -> Result<Vec<VolumeGainerRow>> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/api/live-analysis-volume-gainers"))
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: VolumeGainersResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse volume gainers response: {e}")))?;
+
+        Ok(parsed.data)
+    }
+
+    /// Fetches volume gainers the same way as `volume_gainers_raw`, then
+    /// writes them as a CSV file to `path` exactly - see
+    /// `market_status_csv`.
+    pub async fn volume_gainers_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.volume_gainers_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches stocks hitting a new 52-week high or low, flattened into
+    /// one `Vec` tagged by `direction`. Two requests under the hood - NSE
+    /// serves highs and lows from two entirely separate endpoints, not
+    /// one endpoint with a direction parameter.
+    pub async fn fifty_two_week_raw(&self) -> Result<Vec<FiftyTwoWeekRow>> {
+        let mut rows = Vec::new();
+
+        for (direction, path) in [
+            ("high", "live-analysis-data-52weekhighstock"),
+            ("low", "live-analysis-data-52weeklowstock"),
+        ] {
+            let response = self
+                .client
+                .get(format!("{BASE_URL}/api/{path}"))
+                .send()
+                .await?;
+
+            match response.status() {
+                StatusCode::OK => {}
+                StatusCode::FORBIDDEN => return Err(Error::Blocked),
+                status => return Err(Error::UnexpectedStatus(status)),
+            }
+
+            let parsed: FiftyTwoWeekResponse = response.json().await.map_err(|e| {
+                Error::Parse(format!("could not parse 52-week {direction} response: {e}"))
+            })?;
+
+            rows.extend(parsed.data.into_iter().map(|raw| raw.into_row(direction)));
+        }
+
+        Ok(rows)
+    }
+
+    /// Fetches 52-week highs/lows the same way as `fifty_two_week_raw`,
+    /// then writes them as a CSV file to `path` exactly - see
+    /// `market_status_csv`.
+    pub async fn fifty_two_week_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.fifty_two_week_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches today's large deals - bulk, short, and block deals -
+    /// flattened into one `Vec` tagged by `deal_type` (`"bulk"`,
+    /// `"short"`, `"block"`). A different, simpler view of deals than
+    /// `block_deal_session_raw`/`NseArchives::bulk_deals_raw` (client
+    /// identities and buy/sell side instead of live OHLC-style pricing),
+    /// and the only source in this crate for short deals specifically.
+    pub async fn large_deals_raw(&self) -> Result<Vec<LargeDealRow>> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/api/snapshot-capital-market-largedeal"))
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: LargeDealResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse large deals response: {e}")))?;
+
+        let mut rows: Vec<LargeDealRow> = parsed
+            .bulk
+            .into_iter()
+            .map(|raw| raw.into_row("bulk"))
+            .collect();
+        rows.extend(parsed.short.into_iter().map(|raw| raw.into_row("short")));
+        rows.extend(parsed.block.into_iter().map(|raw| raw.into_row("block")));
+        Ok(rows)
+    }
+
+    /// Fetches large deals the same way as `large_deals_raw`, then writes
+    /// them as a CSV file to `path` exactly - see `market_status_csv`.
+    pub async fn large_deals_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.large_deals_raw().await?;
         write_csv(&rows, path)
     }
 }
@@ -1419,5 +1894,126 @@ mod tests {
 
         assert_eq!(row.change, 1.54);
         assert_eq!(row.percent_change, 0.96);
+    }
+
+    // Real response shape captured live from
+    // `live-analysis-most-active-securities?index=value`.
+    const SAMPLE_MOST_ACTIVE: &str = r#"{"data": [{"symbol": "SSRETAIL", "identifier": "SSRETAILEQN",
+        "lastPrice": 715.45, "pChange": 14.66, "quantityTraded": 35635246, "totalTradedVolume": 39901081,
+        "totalTradedValue": 26413318589.57, "previousClose": 424, "exDate": "-", "purpose": null,
+        "yearHigh": 723.95, "yearLow": 603.05, "change": 91.45, "open": 624, "closePrice": 0,
+        "dayHigh": 723.95, "dayLow": 603.05, "lastUpdateTime": "2026-09-23 13:33:47"}]}"#;
+
+    #[test]
+    fn deserializes_real_most_active_equity_shape() {
+        let parsed: MostActiveEquityResponse = serde_json::from_str(SAMPLE_MOST_ACTIVE).unwrap();
+        let row = parsed.data.into_iter().next().unwrap().into_row("value");
+
+        assert_eq!(row.symbol, "SSRETAIL");
+        assert_eq!(row.ex_date, None);
+        assert_eq!(row.purpose, None);
+        assert_eq!(row.ranking, "value");
+    }
+
+    // Real response shape captured live from `live-analysis-volume-gainers`.
+    const SAMPLE_VOLUME_GAINER: &str = r#"{"data": [{"symbol": "LOYALTEX",
+        "companyName": "Loyal Textile Mills Limited", "volume": 43719, "week1AvgVolume": 138,
+        "week1volChange": 315.6606498194946, "week2AvgVolume": 386, "week2volChange": 113.17369919751488,
+        "ltp": 240, "pChange": 11.65, "turnover": 107.36949}]}"#;
+
+    #[test]
+    fn deserializes_real_volume_gainer_shape() {
+        let parsed: VolumeGainersResponse = serde_json::from_str(SAMPLE_VOLUME_GAINER).unwrap();
+        let row = &parsed.data[0];
+
+        assert_eq!(row.symbol, "LOYALTEX");
+        assert_eq!(row.volume, 43_719);
+        assert_eq!(row.week1_avg_volume, 138);
+    }
+
+    // Real response shape captured live from
+    // `live-analysis-data-52weekhighstock` - note "comapnyName" (NSE's own
+    // typo) and `prevClose` sent as a string unlike its numeric siblings.
+    const SAMPLE_52W_HIGH: &str = r#"{"data": [{"change": 58.65,
+        "comapnyName": "Aarti Pharmalabs Limited", "ltp": 942.4, "new52WHL": 957.3,
+        "pChange": 6.636492220650637, "prev52WHL": 932.6, "prevClose": "883.75",
+        "prevHLDate": "11-Aug-2026", "series": "EQ", "symbol": "AARTIPHARM"}], "high": 1}"#;
+
+    #[test]
+    fn deserializes_real_52_week_high_shape() {
+        let parsed: FiftyTwoWeekResponse = serde_json::from_str(SAMPLE_52W_HIGH).unwrap();
+        let row = parsed.data.into_iter().next().unwrap().into_row("high");
+
+        assert_eq!(row.symbol, "AARTIPHARM");
+        assert_eq!(row.company_name, "Aarti Pharmalabs Limited");
+        assert_eq!(row.previous_close, 883.75);
+        assert_eq!(row.previous_52_week_date, Some(date(2026, 8, 11)));
+        assert_eq!(row.direction, "high");
+    }
+
+    // Real response shape captured live for a recently-listed stock with
+    // no real previous 52-week extreme - `prevHLDate` sent as the literal
+    // string "-" instead of a date, alongside a `prev52WHL` of exactly 0.
+    // This exact response broke deserialization the first time this was
+    // tested live (the field was originally modeled as a required date).
+    const SAMPLE_52W_NEWLY_LISTED: &str = r#"{"data": [{"change": 16.4,
+        "comapnyName": "Hero Motors Limited", "ltp": 98.4, "new52WHL": 80.5,
+        "pChange": 20, "prev52WHL": 0, "prevClose": "84", "prevHLDate": "-",
+        "series": "EQ", "symbol": "HEROMOTORS"}]}"#;
+
+    #[test]
+    fn fifty_two_week_treats_dash_previous_date_as_none() {
+        let parsed: FiftyTwoWeekResponse = serde_json::from_str(SAMPLE_52W_NEWLY_LISTED).unwrap();
+        let row = parsed.data.into_iter().next().unwrap().into_row("low");
+
+        assert_eq!(row.previous_52_week_date, None);
+        assert_eq!(row.previous_52_week_value, 0.0);
+    }
+
+    // Real response shape captured live from
+    // `snapshot-capital-market-largedeal` - one row from each of the three
+    // lists, including a short deal (buySell/clientName/remarks/watp all
+    // null - confirmed live to always be null for short deals).
+    const SAMPLE_LARGE_DEAL: &str = r#"{
+        "BULK_DEALS_DATA": [{"buySell": "SELL", "clientName": "SATISH MEJIYATAR", "date": "22-Sep-2026",
+            "name": "Kshitij Polyline Limited", "qty": "2277241", "remarks": "-", "symbol": "KSHITIJPOL",
+            "watp": "4.62"}],
+        "SHORT_DEALS_DATA": [{"buySell": null, "clientName": null, "date": "22-Sep-2026",
+            "name": "63 MOONS TECHNOLOGIES LTD", "qty": "5", "remarks": null, "symbol": "63MOONS",
+            "watp": null}],
+        "BLOCK_DEALS_DATA": [{"buySell": "BUY", "clientName": "BANDHAN MUTUAL FUND", "date": "22-Sep-2026",
+            "name": "RHI MAGNESITA INDIA LTD", "qty": "2777777", "remarks": null, "symbol": "RHIM",
+            "watp": "360"}]
+    }"#;
+
+    #[test]
+    fn deserializes_real_large_deal_shape_and_flattens_all_three_lists() {
+        let parsed: LargeDealResponse = serde_json::from_str(SAMPLE_LARGE_DEAL).unwrap();
+
+        let bulk = &parsed.bulk[0];
+        assert_eq!(bulk.remarks, None); // "-" normalized to None
+        assert_eq!(bulk.weighted_avg_price, Some(4.62));
+        assert_eq!(bulk.qty, 2_277_241);
+
+        let short = &parsed.short[0];
+        assert_eq!(short.buy_sell, None);
+        assert_eq!(short.client_name, None);
+        assert_eq!(short.weighted_avg_price, None);
+        assert_eq!(short.qty, 5);
+
+        let block = &parsed.block[0];
+        assert_eq!(block.weighted_avg_price, Some(360.0));
+
+        let rows: Vec<LargeDealRow> = parsed
+            .bulk
+            .into_iter()
+            .map(|r| r.into_row("bulk"))
+            .chain(parsed.short.into_iter().map(|r| r.into_row("short")))
+            .chain(parsed.block.into_iter().map(|r| r.into_row("block")))
+            .collect();
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().any(|r| r.deal_type == "bulk"));
+        assert!(rows.iter().any(|r| r.deal_type == "short"));
+        assert!(rows.iter().any(|r| r.deal_type == "block"));
     }
 }
