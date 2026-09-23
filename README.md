@@ -16,6 +16,7 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Per-index daily OHLC history | `NseIndexHistory::index_history_raw`/`index_history_csv` |
 | Per-index P/E, P/B, dividend yield | `NseIndexHistory::index_pe_history_raw`/`index_pe_history_csv` |
 | Per-index Total Return Index | `NseIndexHistory::index_tri_history_raw`/`index_tri_history_csv` |
+| Whole-market index bhavcopy (every index's OHLC/turnover/P-E-P-B-yield, one day) | `NseIndexHistory::index_bhavcopy_raw`/`index_bhavcopy_save` |
 | Index category/name discovery | `NseIndexHistory::index_type_list`/`index_subtype_list`/`index_name_list` |
 | F&O (futures/options) price + open-interest history | `NseHistory::derivatives_history_raw`/`derivatives_history_csv` |
 | Generic daily reports (39+ types, by file key) | `NseDailyReports::list_available_reports`/`download_report_raw`/`download_report_save` |
@@ -30,10 +31,17 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Volume gainers | `NseLiveMarket::volume_gainers_raw` |
 | 52-week highs/lows | `NseLiveMarket::fifty_two_week_raw` |
 | Large deals (bulk, short, block) | `NseLiveMarket::large_deals_raw` |
+| Trading holiday calendar (every segment) | `NseLiveMarket::holiday_list_raw` |
+| Symbol regulatory/compliance status | `NseQuote::reg_details_raw` |
+| Indices a symbol belongs to | `NseQuote::index_list_raw` |
+| Symbol static metadata (eligibility flags, ISIN) | `NseQuote::symbol_meta_raw` |
+| Symbol name lookup | `NseQuote::symbol_name_raw` |
+| Symbol change vs. benchmark across trailing windows | `NseQuote::yearwise_data_raw` |
 | Live stock quote (price, order book depth, volume) | `NseQuote::stock_quote_raw`/`stock_quote_csv` |
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
 | Stock intraday/historical price chart | `NseQuote::stock_chart_data_raw`/`stock_chart_data_csv` |
+| Index intraday/historical price chart | `NseQuote::index_chart_data_raw` |
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
 | Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
@@ -75,10 +83,8 @@ None of this makes jugaad-rs a strict superset yet - see Pending below for what 
 
 ## Pending
 
-- **Index price charts** - `stock_chart_data_raw`'s underlying endpoint only accepts stock symbols; no working index-chart route has been found yet (see [`docs/nse-findings.md`](docs/nse-findings.md#chart_datatick_data-resolved-2026-09-21-same-root-cause-as-the-per-symbol-quotes) for what's been tried).
 - **The newer SEBI Integrated Filing framework** (`corporate_integrated_filing`) - the one thing jugaad-data's `NSELive` covers that this crate doesn't; this crate instead covers older Regulation 33 filings jugaad-data can't reach (see [What this adds beyond jugaad-data](#what-this-adds-beyond-jugaad-data) above).
-- **Smaller per-symbol/reference endpoints** - `holiday_list` (trading holiday calendar), `pre_open_market`, `reg_details` (regulatory/compliance details), `index_list` (which indices a symbol belongs to), `symbol_meta`/`symbol_name`, `yearwise_data` - none investigated yet.
-- **Whole-market index bhavcopy** (`bhavcopy_index_raw`, `NSEIndicesArchives`) - a daily file of every index's closing values, distinct from the per-index OHLC history already built.
+- **`pre_open_market`** - NSE's pre-open session data only exists during the actual pre-open window (roughly 9:00-9:15 IST each trading day); confirmed live outside that window that the endpoint works but has nothing to show (`{"data":[],"msg":"No Data Found"}`), so the real row shape is still unconfirmed. See [`docs/nse-findings.md`](docs/nse-findings.md#pre_open_market---shape-not-yet-confirmed-needs-the-actual-pre-open-window).
 
 ## Requirements
 
@@ -100,14 +106,15 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (38 commands
-as of this writing - bhavcopy in three variants, stock/index/derivatives
-history, bulk deals, generic daily reports, index P/E/TRI/discovery, live
-market status/index snapshot/turnover/F&O/block deals/F&O turnover
+Run `jugaad --help` for the full, always-current command list (46 commands
+as of this writing - bhavcopy in three variants (including the
+whole-market index bhavcopy), stock/index/derivatives history, bulk
+deals, generic daily reports, index P/E/TRI/discovery, live market
+status/index snapshot/turnover/F&O/block deals/F&O turnover
 leaderboards/market movers/most-active/volume-gainers/52-week-high-low/
-large-deals, live per-symbol quotes/charts/option chains,
-financial-results filings, and corporate announcements). A few
-representative examples:
+large-deals/holidays, live per-symbol quotes/charts/reg-details/meta/
+name/yearwise-data, index price charts, option chains, financial-results
+filings, and corporate announcements). A few representative examples:
 
 ```bash
 # Whole-market bhavcopy for one day

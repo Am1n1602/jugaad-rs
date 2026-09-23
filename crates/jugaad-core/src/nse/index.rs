@@ -507,6 +507,65 @@ impl NseIndexHistory {
             .await
             .map_err(|e| Error::Parse(format!("could not parse niftyindices response: {e}")))
     }
+
+    /// Fetches the whole-market index bhavcopy CSV text for a single
+    /// trading day - every index's OHLC/turnover/P-E-P-B-yield in one
+    /// file, unlike `index_history_raw` which is per-index. Distinct
+    /// from `NseArchives::bhavcopy_raw` (equities, a different host).
+    ///
+    /// Confirmed live: this endpoint returns HTTP 200 even when there's
+    /// no file for the date (weekend/holiday) - the real signal is
+    /// `Content-Type`, `application/octet-stream` for real data vs
+    /// `text/html` for an HTML "not found" page. Also confirmed live:
+    /// the URL's date format changed from Python's `%d%b%Y` (e.g.
+    /// `18SEP2026`, now dead - a plain `curl` against it 200s with an
+    /// HTML body) to `%d%m%Y` (`18092026`) - found by submitting
+    /// niftyindices.com's own "Daily Snapshot" report form and reading
+    /// its network request for the real current download link.
+    pub async fn index_bhavcopy_raw(&self, dt: NaiveDate) -> Result<String> {
+        let url = format!(
+            "{BASE_URL}/Daily_Snapshot/ind_close_all_{}.csv",
+            dt.format("%d%m%Y")
+        );
+        let response = self.client.get(url).send().await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let is_html = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| ct.starts_with("text/html"));
+        if is_html {
+            return Err(Error::NoData);
+        }
+
+        response
+            .text()
+            .await
+            .map_err(|e| Error::Parse(format!("could not read index bhavcopy response: {e}")))
+    }
+
+    /// Fetches the index bhavcopy the same way as `index_bhavcopy_raw`,
+    /// then writes it into `dest` (a directory) under NSE's own filename
+    /// convention. Skips re-downloading if the file already exists,
+    /// like `NseArchives::bhavcopy_save`.
+    pub async fn index_bhavcopy_save(&self, dt: NaiveDate, dest: &Path) -> Result<PathBuf> {
+        let file_name = format!("ind_close_all_{}.csv", dt.format("%d%m%Y"));
+        let path = dest.join(file_name);
+
+        if path.is_file() {
+            return Ok(path);
+        }
+
+        let text = self.index_bhavcopy_raw(dt).await?;
+        std::fs::write(&path, text)?;
+        Ok(path)
+    }
 }
 
 /// Discovery endpoints (`index_type_list`/`index_subtype_list`/

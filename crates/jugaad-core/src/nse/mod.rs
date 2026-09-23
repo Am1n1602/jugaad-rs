@@ -19,14 +19,15 @@ pub use daily_reports::{NseDailyReports, ReportDate, ReportSummary};
 pub use history::{DerivativeHistoryRow, Instrument, NseHistory, OptionType, StockHistoryRow};
 pub use index::{IndexHistoryRow, IndexPeRow, IndexTriRow, NseIndexHistory};
 pub use live::{
-    BlockDealRow, EqDerivativeTurnoverRow, FiftyTwoWeekRow, IndexSnapshotRow, LargeDealRow,
-    LiveFoRow, MarketMoverRow, MarketSegmentStatus, MarketTurnoverRow, MostActiveEquityRow,
-    NseLiveMarket, VolumeGainerRow,
+    BlockDealRow, EqDerivativeTurnoverRow, FiftyTwoWeekRow, HolidayRow, IndexSnapshotRow,
+    LargeDealRow, LiveFoRow, MarketMoverRow, MarketSegmentStatus, MarketTurnoverRow,
+    MostActiveEquityRow, NseLiveMarket, VolumeGainerRow,
 };
 pub use quote::{
     ChartData, ChartDataPoint, ChartPeriod, CurrencyOptionChainRow, CurrencyOptionLeg,
-    DerivativeQuoteRow, IndexQuote, NseQuote, OptionChainKind, OptionChainRow, OptionLeg,
-    OrderBook, OrderBookLevel, StockQuote,
+    DerivativeQuoteRow, IndexChartData, IndexChartDataPoint, IndexChartPeriod, IndexQuote,
+    NseQuote, OptionChainKind, OptionChainRow, OptionLeg, OrderBook, OrderBookLevel, RegDetailsRow,
+    StockQuote, SymbolMetaRow, SymbolNameRow, YearwiseDataRow,
 };
 
 // NSE blocks requests that don't look like they came from a browser.

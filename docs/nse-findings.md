@@ -1017,3 +1017,179 @@ network requests.
   deserializers. The top-level `BULK_DEALS`/`SHORT_DEALS`/`BLOCK_DEALS`
   counts are dropped for the same reason as 52-week high/low's `high`/
   `low` - just `data.len()`.
+
+## Six smaller per-symbol/reference endpoints
+
+Six of the seven "smaller reference endpoint" gaps from the full-parity
+backlog, all confirmed live and straightforward - no per-segment schema
+forks like the corporate-filings endpoints, but each had at least one
+real quirk worth recording. (`pre_open_market` is the seventh - see the
+next section for why it's pending separately.)
+
+- **`holiday_list`** (`GET /api/holiday-master?type=trading`) returns a
+  JSON *object* keyed by market segment (`CM`, `FO`, `CD`, `COM`, `CBM`,
+  `CMOT`, `EGR`, `IRD`, `MF`, `NDM`, `NTRP`, `SLBS` - confirmed live, 12
+  segments), each holding its own holiday list - not a flat array.
+  Deserialized as `HashMap<String, Vec<RawHoliday>>` and flattened into
+  one `Vec<HolidayRow>` tagged by `segment`. `morning_session`/
+  `evening_session` are `null` for most segments/dates but real values
+  (`"Open"`/`"Closed"`) for `COM`/`EGR` - confirmed live across the full
+  holiday list, not assumed always-null.
+- **`index_list`** (`getIndexList` via NextApi) is refreshingly simple -
+  a bare JSON array of index name strings, no wrapper object needed.
+  Empty array for an unknown symbol.
+- **`symbol_meta`** (`getMetaData`) sends every `is*`/`casFlag` field
+  (FNO eligibility, ETF/debt/SLB/delisted/suspended flags, etc.) as the
+  literal **JSON string** `"true"`/`"false"`, not a real JSON boolean -
+  confirmed live, every one of them. Parsed with a small
+  `deserialize_string_bool` helper. **An unknown symbol doesn't 404 - it
+  returns HTTP 200 with every field `null`** (including `symbol`
+  itself), so this checks whether `symbol` deserializes as a string
+  before committing to the strict shape, treating the all-null response
+  as `Error::NotFound`.
+- **`symbol_name`** (`getSymbolName`) is the same "no 404, empty/null
+  instead" pattern as `symbol_meta`, but the empty case is a bare `{}`
+  rather than an object with null values - same detection approach
+  (check `symbol` is a real string) handles both shapes.
+- **`reg_details`** (`getRegDetails`) returns a list with one entry per
+  symbol. `regAction`/`series`/`regNote` were `null` for both symbols
+  checked live (SBIN, TCS) - presumably these only populate for a
+  symbol NSE has actually flagged (suspended, under investigation),
+  which wasn't available to confirm. Empty array for an unknown symbol.
+- **`yearwise_data`** (`getYearwiseData`) is misleadingly named - despite
+  "yearwise," it's not one row per calendar year. It's a single-element
+  list holding one symbol's percent change over several trailing windows
+  (yesterday through 5 years) alongside its benchmark index's change
+  over the same windows, confirmed live to always be exactly one entry.
+  Its one real quirk: `one_week_date`/`index_one_week_date` use a
+  **two-digit year** (`"16-SEP-26"`, format `%d-%b-%y`) - the only date
+  field in this crate that isn't the usual four-digit-year `%d-%b-%Y`.
+  Empty array for an unknown symbol.
+
+## `pre_open_market` - shape not yet confirmed, needs the actual pre-open window
+
+`GET /api/market-data-pre-open?key=NIFTY` (Python's default `key`) only
+has real content during NSE's pre-open session, roughly 9:00-9:15 IST
+each trading day. Checked live at 21:48 IST (well outside that window):
+`{"data":[],"msg":"No Data Found"}` - a real, working endpoint, just
+correctly reporting there's nothing to show right now. The row shape is
+still unknown and this isn't implemented yet - same "verify before
+implementing" discipline as everywhere else in this crate, just blocked
+on timing rather than on finding the right endpoint. Needs revisiting
+during an actual pre-open window.
+
+## Whole-market index bhavcopy: Python's URL format is dead, the real one uses a numeric month
+
+`NSEIndicesArchives.bhavcopy_index_raw` (Python) builds
+`https://www.niftyindices.com/Daily_Snapshot/ind_close_all_{dd}{MMM}{yyyy}.csv`
+with an uppercase month abbreviation (e.g. `ind_close_all_18SEP2026.csv`).
+Confirmed live: that URL is dead - it returns HTTP **200** with an HTML
+error page as the body (`<!DOCTYPE html>...<title>Error 404</title>`),
+not a real 404, so a naive status-code check alone would think it
+succeeded.
+
+Found the real, current format by submitting niftyindices.com's own
+"Archives of Daily/Monthly Reports" → "Daily Snapshot" form and reading
+its network request for the actual download link it returns:
+`{"success":true,"data":[{"DownloadLink":"/Daily_Snapshot/ind_close_all_18092026.csv", ...}]}`
+- the date is now `{dd}{MM}{yyyy}` with a **zero-padded numeric month**
+(`18092026`, not `18SEP2026`). Confirmed the new format serves real CSV
+data (every index's OHLC, turnover, P/E, P/B, dividend yield for the
+day) at `https://niftyindices.com` (no `www.` needed - same host
+`NseIndexHistory` already uses for index history).
+
+The real, reliable "is there data" signal is **`Content-Type`**, not
+status code: `application/octet-stream` for a real file,
+`text/html; charset=utf-8` for the same-status "not found" page -
+confirmed live for both a real trading day and a weekend date.
+Implemented as `NseIndexHistory::index_bhavcopy_raw`/`_save`, mapping
+the HTML case to `Error::NoData`.
+
+## Index price charts: a different endpoint from stock charts, with different quirks
+
+`stock_chart_data_raw`'s endpoint (`getSymbolChartData` via
+`NEXTAPI_URL`) was already confirmed to only accept stock symbols - every
+attempt at an index name failed. Found the real per-index chart endpoint
+by opening `/market-data/live-equity-market?symbol=NIFTY%2050` (the page
+NSE's own index-watch table links to) and reading its network requests:
+
+```
+GET /api/NextApi/apiClient?functionName=getGraphChart&type=NIFTY%2050&flag=1D
+```
+
+Note this is `NEXTAPI_APICLIENT_URL` (`/api/NextApi/apiClient`), a
+**different, one-segment-shorter URL** than `NEXTAPI_URL`
+(`/api/NextApi/apiClient/GetQuoteApi`) used by every other NextApi call
+in this crate - confirmed live, `getGraphChart` doesn't exist under the
+`GetQuoteApi` path. Response is also wrapped one level deeper: `{"data":
+{"identifier":..., "grapthData":[...], ...}}`, not the flat top-level
+shape `stock_chart_data_raw` gets.
+
+Confirmed quirks, several genuinely different from the stock endpoint:
+
+- **A different, larger valid-period set.** `1D`/`1W`/`1M`/`3M`/`6M`/
+  `1Y`/`5Y` all return real data (7 values) - notably `3M`/`6M`, which
+  return a 500 for `stock_chart_data_raw`. `3Y`/`ALL` still fail here
+  too, but with a clean HTTP 404 (`{"data":null,"error":{}}`) rather
+  than the stock endpoint's raw Java 500 - modeled as its own
+  `IndexChartPeriod` enum rather than reusing `ChartPeriod`, since the
+  two endpoints' valid-value sets are genuinely different, not a subset/
+  superset of each other in an obvious way.
+- **`change`/`percent_change` are always real JSON numbers, never a
+  string or `null`.** Every non-1D window sends a literal `0`/`0`
+  instead of the stock endpoint's `null`/`null` - confirmed live across
+  1W/1M/3M/6M/1Y/5Y. Modeled as plain `f64` (not `Option<f64>`) on
+  `IndexChartDataPoint`, since converting `0` to `None` would silently
+  destroy a genuinely-flat data point's real value.
+- **The same `CH_TIMESTAMP`-shaped IST/UTC bug as stock charts** -
+  confirmed independently for this endpoint by comparing a live chart
+  point's timestamp against `equity-stock-indices`' `lastUpdateTime`
+  (genuine IST) at the same moment: identical digit-for-digit match when
+  the epoch is decoded as UTC. Reuses `ist_timestamp_from_millis`
+  (already defined for stocks) rather than re-deriving the same fix.
+- **An unknown index name is a clean HTTP 404** with the same
+  `{"data":null,"error":{}}` body as an invalid period - confirmed live,
+  surfaces as `Error::NotFound`.
+
+## Index option chain: a real strike can send `changeinOpenInterest` as a float
+
+`option-chain NIFTY --kind index` (`option_chain_raw`) failed on every
+run with `error decoding response body` - but only for the NIFTY index
+chain, not the SBIN equity chain or the USDINR currency chain. Root
+cause turned out to be a real schema issue, not a transport/network one,
+despite the misleading error message.
+
+**False lead, worth recording:** the response for this endpoint is large
+(~275KB, 128 rows for NIFTY's nearest expiry) and NSE's Akamai edge sent
+a non-standard duplicate `Connection` header on it (`Connection:
+keep-alive` and a second `Connection: Transfer-Encoding` on the same
+response). That looked like a plausible transport-level cause, and a
+throwaway test using a bare `reqwest::Client` with `.no_gzip()` and
+`.bytes()` (not `.json()`) "confirmed" it by successfully reading all
+275017 bytes. That test only proved the raw bytes could be read - it
+never actually deserialized them into the real `OptionChainRow`/
+`OptionLeg` types, so it didn't actually reproduce or rule out anything.
+Applying `.no_gzip()` to `NseQuote`'s real client did **not** fix the
+live failure, which is what exposed the mistake.
+
+The actual cause, found by saving the full real response and running it
+through `serde_json::from_str::<OptionChainResponse<OptionChainRow>>`
+directly: `serde_json::Error` reported `invalid type: floating point
+'48608.769230769234', expected i64` - one strike's
+`changeinOpenInterest` came back as a JSON float instead of an integer.
+This is the exact same "count-like field is sometimes a float" behavior
+already known and guarded against on `DerivativeQuoteRow` (see
+`deserialize_lenient_u64`/`deserialize_lenient_i64` in `quote.rs`) - it
+just hadn't been seen on `OptionLeg`/`CurrencyOptionLeg` before because
+no unit test sample or prior live run happened to include an affected
+strike. A hand-picked small sample can pass while a real full response
+still fails - the same lesson as the 52-week high/low `"-"` date bug.
+
+Fixed by applying `deserialize_lenient_u64`/`_i64` to every count-like
+field on `OptionLeg` (`open_interest`, `change_in_open_interest`,
+`total_traded_volume`, `buy_quantity`, `sell_quantity`,
+`total_buy_quantity`, `total_sell_quantity`) and the equivalent fields
+on `CurrencyOptionLeg`, not just the one field that happened to trip in
+this sample - same defensive posture already used for
+`DerivativeQuoteRow`/`LiveFoRow`.
+

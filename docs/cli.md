@@ -52,6 +52,14 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`corporate-announcements`](#corporate-announcements) - download a symbol's corporate announcements (board meetings, ratings, press releases, etc.)
 - [`sse-announcements`](#sse-announcements) - download Social Stock Exchange (registered social enterprise) announcements
 - [`download-announcement-attachment`](#download-announcement-attachment) - download an announcement's raw attachment (a PDF in every case seen)
+- [`holiday-list`](#holiday-list) - list NSE's trading holidays across every market segment
+- [`index-bhavcopy`](#index-bhavcopy) - download the whole market's daily index closing snapshot for one date
+- [`reg-details`](#reg-details) - download a symbol's SEBI registration details
+- [`index-list`](#index-list) - list the names of every index a symbol is a constituent of
+- [`symbol-meta`](#symbol-meta) - download a symbol's static metadata (eligibility flags, series, ISIN)
+- [`symbol-name`](#symbol-name) - download the company name behind a symbol
+- [`yearwise-data`](#yearwise-data) - download a symbol's price change over several trailing windows
+- [`index-chart`](#index-chart) - download an index's intraday or historical price chart
 
 ---
 
@@ -1732,6 +1740,364 @@ Saved attachment to data/nse/corporate_announcements/500003401_19092026173745_An
 - Saves under NSE's own filename (the URL's last path segment) - like
   `download-xbrl`/`download-result-html`, there's no symbol/date to build
   a filename from since this takes a bare URL.
+
+---
+
+## `holiday-list`
+
+Lists NSE's trading holidays across every market segment (capital market,
+currency derivatives, commodity, mutual funds, etc.), and saves them as
+one CSV, one row per holiday per segment.
+
+```bash
+jugaad holiday-list [OPTIONS]
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/holiday_list.csv` | File path to save the CSV to |
+
+### Examples
+
+```bash
+jugaad holiday-list
+```
+
+```
+Saved holiday list to data/nse/holiday_list.csv
+```
+
+### CSV columns
+
+`segment, date, week_day, description, morning_session, evening_session, serial_number`
+
+`segment` is one of NSE's 12 own segment codes (`CBM`, `CD`, `CM`, `CMOT`,
+`COM`, `EGR`, `FO`, `IRD`, `MF`, `NDM`, `NTRP`, `SLBS`) - NSE returns a
+separate list per segment; this command flattens them into one CSV tagged
+by this column.
+
+### Notes
+
+- Always overwrites the target file (live data, like `market-status`).
+- Takes no arguments - always covers every segment in one request.
+
+---
+
+## `index-bhavcopy`
+
+Downloads NSE's whole-market index bhavcopy - a single file containing
+the daily closing snapshot (OHLC, P/E, P/B, dividend yield) for every
+NSE index on a given day.
+
+```bash
+jugaad index-bhavcopy [OPTIONS] <DATE>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<DATE>` | Trading date to fetch, in `yyyy-mm-dd` format (e.g. `2026-09-22`) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/index_bhavcopy` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad index-bhavcopy 2026-09-22
+```
+
+```
+Saved index bhavcopy to data/nse/index_bhavcopy/ind_close_all_22092026.csv
+```
+
+### Notes
+
+- Served as a ready-made CSV directly by NSE (niftyindices.com), so this
+  is saved as-is rather than re-parsed and re-written, same as `bhavcopy`.
+- If `<DATE>` falls on a weekend, holiday, or a day NSE hasn't published
+  data for yet, the command fails with a "no data" error - detected via
+  the response's `Content-Type` header (`text/html` for a soft-404 page)
+  since NSE returns HTTP 200 either way. See
+  [nse-findings.md](nse-findings.md#whole-market-index-bhavcopy-pythons-url-format-is-dead-the-real-one-uses-a-numeric-month).
+- If the file already exists at the target path, it's reused rather than
+  re-downloaded.
+
+---
+
+## `reg-details`
+
+Downloads a symbol's SEBI registration details, and saves it as a
+one-row CSV.
+
+```bash
+jugaad reg-details [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `SBIN` or `TCS` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/reg_details` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad reg-details SBIN
+```
+
+```
+Saved reg details to data/nse/reg_details/SBIN-reg-details.csv
+```
+
+### CSV columns
+
+`symbol, scrip_code, nse_exclusive, status, reg_action, series, reg_note`
+
+---
+
+## `index-list`
+
+Lists the names of every index a symbol is a constituent of - prints to
+the terminal, one per line, instead of writing a file, same convention as
+`index-types`/`index-subtypes`/`index-names`.
+
+```bash
+jugaad index-list <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `SBIN` or `TCS` |
+
+### Examples
+
+```bash
+jugaad index-list SBIN
+```
+
+```
+NIFTY 50
+NIFTY BANK
+NIFTY FINANCIAL SERVICES
+...
+```
+
+### Notes
+
+- Prints nothing (not an error) for an unknown symbol - confirmed live,
+  this endpoint returns an empty list rather than a 404.
+
+---
+
+## `symbol-meta`
+
+Downloads a symbol's static metadata - eligibility flags, series, ISIN -
+and saves it as a one-row CSV.
+
+```bash
+jugaad symbol-meta [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `SBIN` or `TCS` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/symbol_meta` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad symbol-meta SBIN
+```
+
+```
+Saved symbol meta to data/nse/symbol_meta/SBIN-meta.csv
+```
+
+### CSV columns
+
+`symbol, company_name, isin, market_type, parent_symbol, active_series, debt_series, temp_suspended_series, is_fno_eligible, is_corporate_action_sec, is_slb_eligible, is_debt_sec, is_suspended, is_etf, is_delisted, is_municipal_bond, is_hybrid_symbol, cas_flag`
+
+`active_series`/`debt_series`/`temp_suspended_series` are semicolon-
+joined - NSE returns each as a list, which the CSV format can't represent
+as a single column otherwise.
+
+### Notes
+
+- Fails with a "not found" error for an unknown symbol - confirmed live,
+  this endpoint returns HTTP 200 with every field `null` rather than a
+  404, so the symbol is checked before committing to the strict shape.
+- NSE sends every `is*`/`casFlag` field as the literal string `"true"`/
+  `"false"`, not a real JSON boolean - parsed into real booleans here.
+
+---
+
+## `symbol-name`
+
+Downloads the company name behind a symbol, and saves it as a one-row
+CSV.
+
+```bash
+jugaad symbol-name [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `SBIN` or `TCS` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <OUTPUT>` | `data/nse/symbol_name` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad symbol-name SBIN
+```
+
+```
+Saved symbol name to data/nse/symbol_name/SBIN-name.csv
+```
+
+### CSV columns
+
+`symbol, company_name`
+
+### Notes
+
+- Fails with a "not found" error for an unknown symbol - confirmed live,
+  same HTTP-200-with-nulls behavior as `symbol-meta`.
+
+---
+
+## `yearwise-data`
+
+Downloads a symbol's price change over several trailing windows
+(yesterday through 5 years) alongside its benchmark index's change over
+the same windows, and saves it as a one-row CSV.
+
+```bash
+jugaad yearwise-data [OPTIONS] <SYMBOL>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<SYMBOL>` | Symbol, e.g. `SBIN` or `TCS` |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-s, --series <SERIES>` | `EQ` | Series, e.g. `EQ` |
+| `-o, --output <OUTPUT>` | `data/nse/yearwise_data` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad yearwise-data SBIN
+```
+
+```
+Saved yearwise data to data/nse/yearwise_data/SBIN-EQ-yearwise.csv
+```
+
+### CSV columns
+
+`yesterday_change_pct, one_week_change_pct, one_month_change_pct, three_month_change_pct, six_month_change_pct, one_year_change_pct, two_year_change_pct, three_year_change_pct, five_year_change_pct, one_week_date, index_name, index_yesterday_change_pct, index_one_week_change_pct, index_one_month_change_pct, index_three_month_change_pct, index_six_month_change_pct, index_one_year_change_pct, index_two_year_change_pct, index_three_year_change_pct, index_five_year_change_pct, index_one_week_date`
+
+### Notes
+
+- Returns an empty file (no header row) for an unknown symbol, rather
+  than an error - confirmed live.
+- Despite the "yearwise" name, this is a point-in-time multi-timeframe
+  snapshot, not one row per calendar year - NSE always returns exactly
+  one entry.
+- `one_week_date`/`index_one_week_date` are the only date fields in this
+  crate that use a two-digit year (e.g. `16-SEP-26`) - handled the same
+  as every other date field either way.
+
+---
+
+## `index-chart`
+
+Downloads an index's intraday or historical price chart and saves it as
+a CSV, one row per point - the per-index counterpart to `stock-chart`.
+
+```bash
+jugaad index-chart [OPTIONS] <NAME>
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<NAME>` | Index name, e.g. `"NIFTY 50"` (quote it - it contains a space) |
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `-p, --period <PERIOD>` | `1d` | Time window: `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, or `5y` |
+| `-o, --output <OUTPUT>` | `data/nse/index_chart` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad index-chart "NIFTY 50" --period 1w
+```
+
+```
+Saved index chart data to data/nse/index_chart/NIFTY 50-chart-1w.csv
+```
+
+### CSV columns
+
+`identifier, name, close_price, timestamp, price, session, change, percent_change`
+
+Same layout as `stock-chart`, but `change`/`percent_change` are always
+real numbers here (never blank) - NSE sends a literal `0`/`0` on non-1D
+windows instead of omitting them, unlike the stock endpoint's `null`.
+
+### Notes
+
+- A genuinely different endpoint from `stock-chart` (`getGraphChart`, not
+  `getSymbolChartData`) - an index name doesn't work through `stock-chart`
+  and a stock symbol doesn't work through this one.
+- A different, larger period set than `stock-chart`: this endpoint also
+  accepts `3m`/`6m` (which 500 through `stock-chart`), but still rejects
+  `3y`/an "all" window the same way. See
+  [nse-findings.md](nse-findings.md#index-price-charts-a-different-endpoint-from-stock-charts-with-different-quirks).
+- Fails with a "not found" error for an unknown index name - confirmed
+  live, this endpoint 404s rather than returning an empty result.
+- `timestamp` is already corrected to real IST wall-clock time, same fix
+  and same root cause as `stock-chart`.
 
 ---
 

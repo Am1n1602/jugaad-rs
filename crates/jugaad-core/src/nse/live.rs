@@ -982,6 +982,51 @@ struct LargeDealResponse {
     block: Vec<RawLargeDeal>,
 }
 
+/// One trading holiday for one market segment. NSE returns a separate
+/// list per segment (`CM`, `FO`, `CD`, `COM`, `CBM`, `CMOT`, `EGR`,
+/// `IRD`, `MF`, `NDM`, `NTRP`, `SLBS` - confirmed live); `holiday_list_raw`
+/// flattens all of them into one `Vec` tagged by `segment`, the same
+/// convention as `MarketMoverRow`/`LargeDealRow`.
+#[derive(Debug, Serialize)]
+pub struct HolidayRow {
+    pub segment: String,
+    pub date: NaiveDate,
+    pub week_day: String,
+    pub description: String,
+    // "Open"/"Closed" when populated - confirmed live, `null` for most
+    // segments/dates, but real values seen for `COM`/`EGR`.
+    pub morning_session: Option<String>,
+    pub evening_session: Option<String>,
+    pub serial_number: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawHoliday {
+    #[serde(rename = "tradingDate", deserialize_with = "deserialize_nse_date")]
+    date: NaiveDate,
+    #[serde(rename = "weekDay")]
+    week_day: String,
+    description: String,
+    morning_session: Option<String>,
+    evening_session: Option<String>,
+    #[serde(rename = "Sr_no")]
+    serial_number: u32,
+}
+
+impl RawHoliday {
+    fn into_row(self, segment: &str) -> HolidayRow {
+        HolidayRow {
+            segment: segment.to_string(),
+            date: self.date,
+            week_day: self.week_day,
+            description: self.description,
+            morning_session: self.morning_session,
+            evening_session: self.evening_session,
+            serial_number: self.serial_number,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NseLiveMarket {
     client: Client,
@@ -1432,6 +1477,43 @@ impl NseLiveMarket {
     /// them as a CSV file to `path` exactly - see `market_status_csv`.
     pub async fn large_deals_csv(&self, path: &Path) -> Result<PathBuf> {
         let rows = self.large_deals_raw().await?;
+        write_csv(&rows, path)
+    }
+
+    /// Fetches NSE's trading holiday calendar across every market segment
+    /// it publishes one for, flattened into one `Vec` tagged by `segment`.
+    pub async fn holiday_list_raw(&self) -> Result<Vec<HolidayRow>> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/api/holiday-master"))
+            .query(&[("type", "trading")])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: std::collections::HashMap<String, Vec<RawHoliday>> = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse holiday list response: {e}")))?;
+
+        Ok(parsed
+            .into_iter()
+            .flat_map(|(segment, holidays)| {
+                holidays.into_iter().map(move |raw| raw.into_row(&segment))
+            })
+            .collect())
+    }
+
+    /// Fetches the holiday calendar the same way as `holiday_list_raw`,
+    /// then writes it as a CSV file to `path` exactly - see
+    /// `market_status_csv`.
+    pub async fn holiday_list_csv(&self, path: &Path) -> Result<PathBuf> {
+        let rows = self.holiday_list_raw().await?;
         write_csv(&rows, path)
     }
 }
@@ -2015,5 +2097,36 @@ mod tests {
         assert!(rows.iter().any(|r| r.deal_type == "bulk"));
         assert!(rows.iter().any(|r| r.deal_type == "short"));
         assert!(rows.iter().any(|r| r.deal_type == "block"));
+    }
+
+    // Real response shape captured live from `holiday-master?type=trading` -
+    // trimmed to two segments, one holiday each (one with real session
+    // values, one with the more common null/null).
+    const SAMPLE_HOLIDAYS: &str = r#"{
+        "CM": [{"tradingDate":"26-Jan-2026","weekDay":"Monday","description":"Republic Day",
+            "morning_session":null,"evening_session":null,"Sr_no":2}],
+        "COM": [{"tradingDate":"01-Jan-2026","weekDay":"Thursday","description":"New year",
+            "morning_session":"Open","evening_session":"Closed","Sr_no":1}]
+    }"#;
+
+    #[test]
+    fn deserializes_real_holiday_list_shape_and_flattens_segments() {
+        let parsed: std::collections::HashMap<String, Vec<RawHoliday>> =
+            serde_json::from_str(SAMPLE_HOLIDAYS).unwrap();
+        let rows: Vec<HolidayRow> = parsed
+            .into_iter()
+            .flat_map(|(segment, holidays)| {
+                holidays.into_iter().map(move |raw| raw.into_row(&segment))
+            })
+            .collect();
+
+        assert_eq!(rows.len(), 2);
+        let cm = rows.iter().find(|r| r.segment == "CM").unwrap();
+        assert_eq!(cm.date, date(2026, 1, 26));
+        assert_eq!(cm.morning_session, None);
+
+        let com = rows.iter().find(|r| r.segment == "COM").unwrap();
+        assert_eq!(com.morning_session, Some("Open".to_string()));
+        assert_eq!(com.evening_session, Some("Closed".to_string()));
     }
 }

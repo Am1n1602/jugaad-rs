@@ -18,6 +18,10 @@ const BASE_URL: &str = "https://www.nseindia.com";
 // hit the same generic NextApi endpoint, just with different
 // `functionName` values.
 pub(super) const NEXTAPI_URL: &str = "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi";
+// A sibling NextApi endpoint, one path segment shorter than
+// `NEXTAPI_URL` (no `/GetQuoteApi` suffix) - confirmed live, used only
+// by index chart data.
+const NEXTAPI_APICLIENT_URL: &str = "https://www.nseindia.com/api/NextApi/apiClient";
 
 /// One price level of an order book's bid/ask depth.
 #[derive(Debug, Serialize, Deserialize)]
@@ -594,6 +598,142 @@ fn chart_data_csv_rows(data: &ChartData) -> Vec<ChartDataCsvRow<'_>> {
         .collect()
 }
 
+/// Which time window to fetch an index's price chart for.
+///
+/// A different, larger set of confirmed-valid values than `ChartPeriod`
+/// (stocks) - confirmed live, this endpoint accepts `3M`/`6M` (which
+/// return a 500 for `stock_chart_data_raw`) but, like stocks, rejects
+/// `3Y`/`ALL` (HTTP 404, same envelope as an unknown index name).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexChartPeriod {
+    OneDay,
+    OneWeek,
+    OneMonth,
+    ThreeMonths,
+    SixMonths,
+    OneYear,
+    FiveYears,
+}
+
+impl IndexChartPeriod {
+    fn as_query_param(self) -> &'static str {
+        match self {
+            IndexChartPeriod::OneDay => "1D",
+            IndexChartPeriod::OneWeek => "1W",
+            IndexChartPeriod::OneMonth => "1M",
+            IndexChartPeriod::ThreeMonths => "3M",
+            IndexChartPeriod::SixMonths => "6M",
+            IndexChartPeriod::OneYear => "1Y",
+            IndexChartPeriod::FiveYears => "5Y",
+        }
+    }
+
+    // Used to build a CSV filename - lowercase, matching this crate's other
+    // filename conventions rather than the API's own uppercase query value.
+    fn label(self) -> &'static str {
+        match self {
+            IndexChartPeriod::OneDay => "1d",
+            IndexChartPeriod::OneWeek => "1w",
+            IndexChartPeriod::OneMonth => "1m",
+            IndexChartPeriod::ThreeMonths => "3m",
+            IndexChartPeriod::SixMonths => "6m",
+            IndexChartPeriod::OneYear => "1y",
+            IndexChartPeriod::FiveYears => "5y",
+        }
+    }
+}
+
+/// One point on an index's price chart.
+///
+/// Unlike `ChartDataPoint` (stocks), `change`/`percent_change` are
+/// always real JSON numbers here, never a string or `null` - confirmed
+/// live, every non-1D window sends a literal `0`/`0` instead of omitting
+/// them, so there's no clean "not applicable" signal to model as `None`
+/// without silently losing a genuinely-flat data point.
+#[derive(Debug, Serialize)]
+pub struct IndexChartDataPoint {
+    // IST wall-clock time, not UTC - confirmed live to have the
+    // identical bug as `ChartDataPoint` - see `ist_timestamp_from_millis`.
+    pub timestamp: NaiveDateTime,
+    pub price: f64,
+    pub session: String,
+    pub change: f64,
+    pub percent_change: f64,
+}
+
+/// An index's intraday or historical price chart -
+/// `NseQuote::index_chart_data_raw`.
+#[derive(Debug, Serialize)]
+pub struct IndexChartData {
+    pub identifier: String,
+    pub name: String,
+    pub close_price: f64,
+    pub points: Vec<IndexChartDataPoint>,
+}
+
+/// One `IndexChartDataPoint` flattened for CSV, mirroring `ChartDataCsvRow`
+/// (stocks) - `change`/`percent_change` stay plain `f64` here, matching
+/// `IndexChartDataPoint`'s own fields.
+#[derive(Debug, Serialize)]
+struct IndexChartDataCsvRow<'a> {
+    identifier: &'a str,
+    name: &'a str,
+    close_price: f64,
+    timestamp: NaiveDateTime,
+    price: f64,
+    session: &'a str,
+    change: f64,
+    percent_change: f64,
+}
+
+fn index_chart_data_csv_rows(data: &IndexChartData) -> Vec<IndexChartDataCsvRow<'_>> {
+    data.points
+        .iter()
+        .map(|p| IndexChartDataCsvRow {
+            identifier: &data.identifier,
+            name: &data.name,
+            close_price: data.close_price,
+            timestamp: p.timestamp,
+            price: p.price,
+            session: &p.session,
+            change: p.change,
+            percent_change: p.percent_change,
+        })
+        .collect()
+}
+
+/// One `grapthData` point for an index chart - see `RawChartDataPoint`
+/// (stocks) for why NSE's own misspelling is kept as the wire name.
+type RawIndexChartDataPoint = (i64, f64, String, f64, f64);
+
+#[derive(Debug, Deserialize)]
+struct RawIndexChartData {
+    identifier: String,
+    name: String,
+    #[serde(rename = "grapthData")]
+    graph_data: Vec<RawIndexChartDataPoint>,
+    #[serde(rename = "closePrice")]
+    close_price: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct IndexChartResponse {
+    data: RawIndexChartData,
+}
+
+fn index_chart_data_point_from_tuple(row: RawIndexChartDataPoint) -> Result<IndexChartDataPoint> {
+    let (millis, price, session, change, percent_change) = row;
+    let timestamp = ist_timestamp_from_millis(millis)
+        .ok_or_else(|| Error::Parse(format!("invalid index chart timestamp: {millis}")))?;
+    Ok(IndexChartDataPoint {
+        timestamp,
+        price,
+        session,
+        change,
+        percent_change,
+    })
+}
+
 /// A single index's live value, volume and turnover.
 ///
 /// Distinct from `IndexSnapshotRow` (`NseLiveMarket::index_snapshot_raw`,
@@ -678,27 +818,54 @@ pub struct OptionLeg {
     pub change: f64,
     #[serde(rename(deserialize = "pChange"))]
     pub percent_change: f64,
-    #[serde(rename(deserialize = "openInterest"))]
+    // Same float-or-integer inconsistency `DerivativeQuoteRow` already
+    // guards against - confirmed live on the real NIFTY index chain (128
+    // strikes), where a plain `u64`/`i64` fails to deserialize a
+    // fractional value like `48608.769230769234` on this field. Applied
+    // to every count-like field on this leg defensively, not just the one
+    // that happened to trip in that sample.
+    #[serde(
+        rename(deserialize = "openInterest"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub open_interest: u64,
-    #[serde(rename(deserialize = "changeinOpenInterest"))]
+    #[serde(
+        rename(deserialize = "changeinOpenInterest"),
+        deserialize_with = "deserialize_lenient_i64"
+    )]
     pub change_in_open_interest: i64,
     #[serde(rename(deserialize = "pchangeinOpenInterest"))]
     pub percent_change_in_open_interest: f64,
-    #[serde(rename(deserialize = "totalTradedVolume"))]
+    #[serde(
+        rename(deserialize = "totalTradedVolume"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub total_traded_volume: u64,
     #[serde(rename(deserialize = "impliedVolatility"))]
     pub implied_volatility: f64,
     #[serde(rename(deserialize = "buyPrice1"))]
     pub buy_price: f64,
-    #[serde(rename(deserialize = "buyQuantity1"))]
+    #[serde(
+        rename(deserialize = "buyQuantity1"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub buy_quantity: u64,
     #[serde(rename(deserialize = "sellPrice1"))]
     pub sell_price: f64,
-    #[serde(rename(deserialize = "sellQuantity1"))]
+    #[serde(
+        rename(deserialize = "sellQuantity1"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub sell_quantity: u64,
-    #[serde(rename(deserialize = "totalBuyQuantity"))]
+    #[serde(
+        rename(deserialize = "totalBuyQuantity"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub total_buy_quantity: u64,
-    #[serde(rename(deserialize = "totalSellQuantity"))]
+    #[serde(
+        rename(deserialize = "totalSellQuantity"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub total_sell_quantity: u64,
     #[serde(rename(deserialize = "underlyingValue"))]
     pub underlying_value: f64,
@@ -809,27 +976,49 @@ pub struct CurrencyOptionLeg {
     pub change: f64,
     #[serde(rename(deserialize = "pChange"))]
     pub percent_change: f64,
-    #[serde(rename(deserialize = "openInterest"))]
+    // Same float-or-integer inconsistency as `OptionLeg` - see its comment.
+    #[serde(
+        rename(deserialize = "openInterest"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub open_interest: u64,
-    #[serde(rename(deserialize = "changeinOpenInterest"))]
+    #[serde(
+        rename(deserialize = "changeinOpenInterest"),
+        deserialize_with = "deserialize_lenient_i64"
+    )]
     pub change_in_open_interest: i64,
     #[serde(rename(deserialize = "pchangeinOpenInterest"))]
     pub percent_change_in_open_interest: f64,
-    #[serde(rename(deserialize = "totalTradedVolume"))]
+    #[serde(
+        rename(deserialize = "totalTradedVolume"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub total_traded_volume: u64,
     #[serde(rename(deserialize = "impliedVolatility"))]
     pub implied_volatility: f64,
     #[serde(rename(deserialize = "bidprice"))]
     pub bid_price: f64,
-    #[serde(rename(deserialize = "bidQty"))]
+    #[serde(
+        rename(deserialize = "bidQty"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub bid_quantity: u64,
     #[serde(rename(deserialize = "askPrice"))]
     pub ask_price: f64,
-    #[serde(rename(deserialize = "askQty"))]
+    #[serde(
+        rename(deserialize = "askQty"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub ask_quantity: u64,
-    #[serde(rename(deserialize = "totalBuyQuantity"))]
+    #[serde(
+        rename(deserialize = "totalBuyQuantity"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub total_buy_quantity: u64,
-    #[serde(rename(deserialize = "totalSellQuantity"))]
+    #[serde(
+        rename(deserialize = "totalSellQuantity"),
+        deserialize_with = "deserialize_lenient_u64"
+    )]
     pub total_sell_quantity: u64,
     #[serde(rename(deserialize = "underlyingValue"))]
     pub underlying_value: f64,
@@ -940,6 +1129,239 @@ struct OptionChainRecords<T> {
 struct ContractInfo {
     #[serde(rename = "expiryDates", default)]
     expiry_dates: Vec<String>,
+}
+
+/// A symbol's regulatory/compliance status.
+///
+/// `reg_action`/`series`/`reg_note` are `None` for every ordinary,
+/// unrestricted symbol checked live (SBIN, TCS) - presumably these only
+/// populate for a symbol NSE has flagged (suspended, under
+/// investigation, etc.), which wasn't available to confirm.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegDetailsRow {
+    pub symbol: String,
+    #[serde(rename(deserialize = "scripCode"))]
+    pub scrip_code: String,
+    #[serde(rename(deserialize = "nseExclusive"))]
+    pub nse_exclusive: String,
+    pub status: String,
+    #[serde(rename(deserialize = "regAction"))]
+    pub reg_action: Option<String>,
+    pub series: Option<String>,
+    #[serde(rename(deserialize = "regNote"))]
+    pub reg_note: Option<String>,
+}
+
+/// A symbol's static metadata - eligibility flags, series, ISIN.
+///
+/// NSE sends every `is*`/`casFlag` field as the JSON string `"true"`/
+/// `"false"`, not a real JSON boolean - confirmed live. Parsed into
+/// actual `bool`s via `deserialize_string_bool`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SymbolMetaRow {
+    pub symbol: String,
+    #[serde(rename(deserialize = "companyName"))]
+    pub company_name: String,
+    pub isin: String,
+    #[serde(rename(deserialize = "marketType"))]
+    pub market_type: String,
+    #[serde(rename(deserialize = "parentSymbol"))]
+    pub parent_symbol: String,
+    #[serde(rename(deserialize = "activeSeries"))]
+    pub active_series: Vec<String>,
+    #[serde(rename(deserialize = "debtSeries"))]
+    pub debt_series: Vec<String>,
+    #[serde(rename(deserialize = "tempSuspendedSeries"))]
+    pub temp_suspended_series: Vec<String>,
+    #[serde(
+        rename(deserialize = "isFNOSec"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_fno_eligible: bool,
+    #[serde(
+        rename(deserialize = "isCASec"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_corporate_action_sec: bool,
+    #[serde(
+        rename(deserialize = "isSLBSec"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_slb_eligible: bool,
+    #[serde(
+        rename(deserialize = "isDebtSec"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_debt_sec: bool,
+    #[serde(
+        rename(deserialize = "isSuspended"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_suspended: bool,
+    #[serde(
+        rename(deserialize = "isETFSec"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_etf: bool,
+    #[serde(
+        rename(deserialize = "isDelisted"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_delisted: bool,
+    #[serde(
+        rename(deserialize = "isMunicipalBond"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_municipal_bond: bool,
+    #[serde(
+        rename(deserialize = "isHybridSymbol"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub is_hybrid_symbol: bool,
+    #[serde(
+        rename(deserialize = "casFlag"),
+        deserialize_with = "deserialize_string_bool"
+    )]
+    pub cas_flag: bool,
+}
+
+/// `SymbolMetaRow` flattened for CSV - the `csv` crate can't write a
+/// `Vec<String>` field as a column, so the three series lists are joined
+/// into semicolon-separated strings here.
+#[derive(Debug, Serialize)]
+struct SymbolMetaCsvRow<'a> {
+    symbol: &'a str,
+    company_name: &'a str,
+    isin: &'a str,
+    market_type: &'a str,
+    parent_symbol: &'a str,
+    active_series: String,
+    debt_series: String,
+    temp_suspended_series: String,
+    is_fno_eligible: bool,
+    is_corporate_action_sec: bool,
+    is_slb_eligible: bool,
+    is_debt_sec: bool,
+    is_suspended: bool,
+    is_etf: bool,
+    is_delisted: bool,
+    is_municipal_bond: bool,
+    is_hybrid_symbol: bool,
+    cas_flag: bool,
+}
+
+fn symbol_meta_csv_row(row: &SymbolMetaRow) -> SymbolMetaCsvRow<'_> {
+    SymbolMetaCsvRow {
+        symbol: &row.symbol,
+        company_name: &row.company_name,
+        isin: &row.isin,
+        market_type: &row.market_type,
+        parent_symbol: &row.parent_symbol,
+        active_series: row.active_series.join(";"),
+        debt_series: row.debt_series.join(";"),
+        temp_suspended_series: row.temp_suspended_series.join(";"),
+        is_fno_eligible: row.is_fno_eligible,
+        is_corporate_action_sec: row.is_corporate_action_sec,
+        is_slb_eligible: row.is_slb_eligible,
+        is_debt_sec: row.is_debt_sec,
+        is_suspended: row.is_suspended,
+        is_etf: row.is_etf,
+        is_delisted: row.is_delisted,
+        is_municipal_bond: row.is_municipal_bond,
+        is_hybrid_symbol: row.is_hybrid_symbol,
+        cas_flag: row.cas_flag,
+    }
+}
+
+fn deserialize_string_bool<'de, D>(deserializer: D) -> std::result::Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    match raw.as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        other => Err(serde::de::Error::custom(format!(
+            "expected \"true\" or \"false\", got {other:?}"
+        ))),
+    }
+}
+
+/// A symbol's basic identity - just the company name behind a symbol.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SymbolNameRow {
+    pub symbol: String,
+    #[serde(rename(deserialize = "companyName"))]
+    pub company_name: String,
+}
+
+/// A symbol's price change over several trailing windows (yesterday
+/// through 5 years), alongside its benchmark index's change over the
+/// same windows for comparison. Despite the "yearwise" name, this is a
+/// point-in-time multi-timeframe snapshot, not one row per calendar year
+/// - confirmed live, NSE always returns exactly one entry.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct YearwiseDataRow {
+    #[serde(rename(deserialize = "yesterday_chng_per"))]
+    pub yesterday_change_pct: f64,
+    #[serde(rename(deserialize = "one_week_chng_per"))]
+    pub one_week_change_pct: f64,
+    #[serde(rename(deserialize = "one_month_chng_per"))]
+    pub one_month_change_pct: f64,
+    #[serde(rename(deserialize = "three_month_chng_per"))]
+    pub three_month_change_pct: f64,
+    #[serde(rename(deserialize = "six_month_chng_per"))]
+    pub six_month_change_pct: f64,
+    #[serde(rename(deserialize = "one_year_chng_per"))]
+    pub one_year_change_pct: f64,
+    #[serde(rename(deserialize = "two_year_chng_per"))]
+    pub two_year_change_pct: f64,
+    #[serde(rename(deserialize = "three_year_chng_per"))]
+    pub three_year_change_pct: f64,
+    #[serde(rename(deserialize = "five_year_chng_per"))]
+    pub five_year_change_pct: f64,
+    // "16-SEP-26" - a two-digit year, unlike every other date field in
+    // this crate (`%d-%b-%Y`) - confirmed live.
+    #[serde(
+        rename(deserialize = "one_week_date"),
+        deserialize_with = "deserialize_nse_date_short_year"
+    )]
+    pub one_week_date: NaiveDate,
+    #[serde(rename(deserialize = "index_name"))]
+    pub index_name: String,
+    #[serde(rename(deserialize = "index_yesterday_chng_per"))]
+    pub index_yesterday_change_pct: f64,
+    #[serde(rename(deserialize = "index_one_week_chng_per"))]
+    pub index_one_week_change_pct: f64,
+    #[serde(rename(deserialize = "index_one_month_chng_per"))]
+    pub index_one_month_change_pct: f64,
+    #[serde(rename(deserialize = "index_three_month_chng_per"))]
+    pub index_three_month_change_pct: f64,
+    #[serde(rename(deserialize = "index_six_month_chng_per"))]
+    pub index_six_month_change_pct: f64,
+    #[serde(rename(deserialize = "index_one_year_chng_per"))]
+    pub index_one_year_change_pct: f64,
+    #[serde(rename(deserialize = "index_two_year_chng_per"))]
+    pub index_two_year_change_pct: f64,
+    #[serde(rename(deserialize = "index_three_year_chng_per"))]
+    pub index_three_year_change_pct: f64,
+    #[serde(rename(deserialize = "index_five_year_chng_per"))]
+    pub index_five_year_change_pct: f64,
+    #[serde(
+        rename(deserialize = "index_one_week_date"),
+        deserialize_with = "deserialize_nse_date_short_year"
+    )]
+    pub index_one_week_date: NaiveDate,
+}
+
+fn deserialize_nse_date_short_year<'de, D>(
+    deserializer: D,
+) -> std::result::Result<NaiveDate, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    NaiveDate::parse_from_str(&raw, "%d-%b-%y").map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone)]
@@ -1066,6 +1488,75 @@ impl NseQuote {
         let data = self.stock_chart_data_raw(symbol, period).await?;
         let path = dest.join(format!("{symbol}-chart-{}.csv", period.label()));
         let csv_rows = chart_data_csv_rows(&data);
+        write_csv(&csv_rows, &path)
+    }
+
+    /// Fetches an index's intraday or historical price chart - the
+    /// per-index counterpart to `stock_chart_data_raw`. A genuinely
+    /// different endpoint (`getGraphChart` against `NEXTAPI_APICLIENT_URL`,
+    /// not `getSymbolChartData` against `NEXTAPI_URL`), found by
+    /// inspecting the live-equity-market index page's network requests
+    /// after `stock_chart_data_raw`'s endpoint confirmed it only accepts
+    /// stock symbols. Returns `Error::NotFound` for an unknown index name
+    /// - confirmed live, HTTP 404 with an empty `data`.
+    pub async fn index_chart_data_raw(
+        &self,
+        name: &str,
+        period: IndexChartPeriod,
+    ) -> Result<IndexChartData> {
+        let response = self
+            .client
+            .get(NEXTAPI_APICLIENT_URL)
+            .query(&[
+                ("functionName", "getGraphChart"),
+                ("type", name),
+                ("flag", period.as_query_param()),
+            ])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::NOT_FOUND => {
+                return Err(Error::NotFound(format!("no chart data for index '{name}'")));
+            }
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: IndexChartResponse = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse index chart data response: {e}")))?;
+
+        let points = parsed
+            .data
+            .graph_data
+            .into_iter()
+            .map(index_chart_data_point_from_tuple)
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(IndexChartData {
+            identifier: parsed.data.identifier,
+            name: parsed.data.name,
+            close_price: parsed.data.close_price,
+            points,
+        })
+    }
+
+    /// Fetches an index's price chart the same way as `index_chart_data_raw`,
+    /// then writes it as a CSV file into `dest` (a directory - the filename
+    /// is derived from `name` and `period`), one row per point. Returns the
+    /// path written.
+    pub async fn index_chart_data_csv(
+        &self,
+        name: &str,
+        period: IndexChartPeriod,
+        dest: &Path,
+    ) -> Result<PathBuf> {
+        let data = self.index_chart_data_raw(name, period).await?;
+        let path = dest.join(format!("{name}-chart-{}.csv", period.label()));
+        let csv_rows = index_chart_data_csv_rows(&data);
         write_csv(&csv_rows, &path)
     }
 
@@ -1282,6 +1773,186 @@ impl NseQuote {
         NaiveDate::parse_from_str(first, "%d-%b-%Y")
             .map_err(|e| Error::Parse(format!("could not parse expiry date '{first}': {e}")))
     }
+
+    /// Fetches a symbol's regulatory/compliance status. Returns an empty
+    /// `Vec` for an unknown symbol - confirmed live.
+    pub async fn reg_details_raw(&self, symbol: &str) -> Result<Vec<RegDetailsRow>> {
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[("functionName", "getRegDetails"), ("symbol", symbol)])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse reg details response: {e}")))
+    }
+
+    /// Fetches reg details the same way as `reg_details_raw`, then writes
+    /// them as a CSV file into `dest` (a directory - the filename is
+    /// derived from `symbol`). Returns the path written.
+    pub async fn reg_details_csv(&self, symbol: &str, dest: &Path) -> Result<PathBuf> {
+        let rows = self.reg_details_raw(symbol).await?;
+        let path = dest.join(format!("{symbol}-reg-details.csv"));
+        write_csv(&rows, &path)
+    }
+
+    /// Fetches the names of every index `symbol` is a constituent of.
+    /// Returns an empty `Vec` for an unknown symbol - confirmed live.
+    pub async fn index_list_raw(&self, symbol: &str) -> Result<Vec<String>> {
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[("functionName", "getIndexList"), ("symbol", symbol)])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse index list response: {e}")))
+    }
+
+    /// Fetches a symbol's static metadata (eligibility flags, series,
+    /// ISIN). Confirmed live: an unknown symbol returns HTTP 200 with
+    /// every field `null` rather than a 404 or an empty object, so this
+    /// checks `symbol` itself before committing to the strict shape.
+    pub async fn symbol_meta_raw(&self, symbol: &str) -> Result<SymbolMetaRow> {
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[("functionName", "getMetaData"), ("symbol", symbol)])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse symbol meta response: {e}")))?;
+
+        if !value.get("symbol").is_some_and(|v| v.is_string()) {
+            return Err(Error::NotFound(format!(
+                "no metadata for symbol '{symbol}'"
+            )));
+        }
+
+        serde_json::from_value(value)
+            .map_err(|e| Error::Parse(format!("could not parse symbol meta response: {e}")))
+    }
+
+    /// Fetches symbol metadata the same way as `symbol_meta_raw`, then
+    /// writes it as a CSV file into `dest` (a directory - the filename is
+    /// derived from `symbol`). Returns the path written.
+    pub async fn symbol_meta_csv(&self, symbol: &str, dest: &Path) -> Result<PathBuf> {
+        let row = self.symbol_meta_raw(symbol).await?;
+        let path = dest.join(format!("{symbol}-meta.csv"));
+        write_csv(&[symbol_meta_csv_row(&row)], &path)
+    }
+
+    /// Fetches the company name behind a symbol. Confirmed live: an
+    /// unknown symbol returns HTTP 200 with an empty object rather than a
+    /// 404 - see `symbol_meta_raw`.
+    pub async fn symbol_name_raw(&self, symbol: &str) -> Result<SymbolNameRow> {
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[("functionName", "getSymbolName"), ("symbol", symbol)])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let value: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse symbol name response: {e}")))?;
+
+        if !value.get("symbol").is_some_and(|v| v.is_string()) {
+            return Err(Error::NotFound(format!("no symbol name for '{symbol}'")));
+        }
+
+        serde_json::from_value(value)
+            .map_err(|e| Error::Parse(format!("could not parse symbol name response: {e}")))
+    }
+
+    /// Fetches the symbol name the same way as `symbol_name_raw`, then
+    /// writes it as a CSV file into `dest` (a directory - the filename is
+    /// derived from `symbol`). Returns the path written.
+    pub async fn symbol_name_csv(&self, symbol: &str, dest: &Path) -> Result<PathBuf> {
+        let row = self.symbol_name_raw(symbol).await?;
+        let path = dest.join(format!("{symbol}-name.csv"));
+        write_csv(&[row], &path)
+    }
+
+    /// Fetches `symbol`'s price change over several trailing windows
+    /// (yesterday through 5 years) alongside its benchmark index's change
+    /// over the same windows. Returns an empty `Vec` for an unknown
+    /// symbol - confirmed live.
+    pub async fn yearwise_data_raw(
+        &self,
+        symbol: &str,
+        series: &str,
+    ) -> Result<Vec<YearwiseDataRow>> {
+        let identifier = format!("{symbol}{series}N");
+        let response = self
+            .client
+            .get(NEXTAPI_URL)
+            .query(&[
+                ("functionName", "getYearwiseData"),
+                ("symbol", identifier.as_str()),
+            ])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| Error::Parse(format!("could not parse yearwise data response: {e}")))
+    }
+
+    /// Fetches yearwise data the same way as `yearwise_data_raw`, then
+    /// writes it as a CSV file into `dest` (a directory - the filename is
+    /// derived from `symbol` and `series`). Returns the path written.
+    pub async fn yearwise_data_csv(
+        &self,
+        symbol: &str,
+        series: &str,
+        dest: &Path,
+    ) -> Result<PathBuf> {
+        let rows = self.yearwise_data_raw(symbol, series).await?;
+        let path = dest.join(format!("{symbol}-{series}-yearwise.csv"));
+        write_csv(&rows, &path)
+    }
 }
 
 // Panicking via `.unwrap()` on a failed assertion is the normal, intended
@@ -1482,6 +2153,32 @@ mod tests {
         assert!(row.put.as_ref().unwrap().identifier.is_none());
     }
 
+    // Confirmed live: the real NIFTY index option chain (128 strikes) had
+    // at least one leg with `changeinOpenInterest` as a JSON float
+    // (`48608.769230769234`) rather than an integer - a plain `i64` fails
+    // to deserialize it, breaking the whole response even though every
+    // other strike in the same response was fine. Same class of bug
+    // `DerivativeQuoteRow` already guards against on a different endpoint
+    // (see `deserialize_lenient_u64`/`_i64`), just not caught here until a
+    // full live NIFTY fetch happened to hit the affected strike - a
+    // hand-picked small sample never would have.
+    #[test]
+    fn option_leg_accepts_float_formatted_change_in_open_interest() {
+        const FLOAT_CHANGE_IN_OI: &str = r#"{"records":{"data":[
+            {"expiryDates":"29-Sep-2026","strikePrice":34500,
+             "CE":{"buyPrice1":0,"buyQuantity1":0,"change":0,"changeinOpenInterest":48608.769230769234,
+                   "identifier":"OPTIDXNIFTY29-09-2026CE34500.00","impliedVolatility":0,"lastPrice":0,
+                   "openInterest":0,"pChange":0,"pchangeinOpenInterest":0,"sellPrice1":0,
+                   "sellQuantity1":0,"totalBuyQuantity":0,"totalSellQuantity":0,
+                   "totalTradedVolume":0,"underlyingValue":23446.8}}
+        ]}}"#;
+        let parsed: OptionChainResponse<OptionChainRow> =
+            serde_json::from_str(FLOAT_CHANGE_IN_OI).unwrap();
+        let row = &parsed.records.unwrap().data[0];
+
+        assert_eq!(row.call.as_ref().unwrap().change_in_open_interest, 48609);
+    }
+
     #[test]
     fn option_chain_missing_records_key_is_treated_as_empty() {
         let parsed: OptionChainResponse<OptionChainRow> = serde_json::from_str("{}").unwrap();
@@ -1583,5 +2280,126 @@ mod tests {
     fn chart_data_timestamp_is_read_as_ist_wall_clock() {
         let ts = ist_timestamp_from_millis(1_789_981_259_000).unwrap();
         assert_eq!(ts.to_string(), "2026-09-21 09:00:59");
+    }
+
+    // Real response captured live for SBIN.
+    const SAMPLE_REG_DETAILS: &str = r#"[{"regAction":null,"scripCode":"NA","symbol":"SBIN",
+        "nseExclusive":"N","status":"A","series":null,"regNote":null}]"#;
+
+    #[test]
+    fn deserializes_real_reg_details_shape() {
+        let rows: Vec<RegDetailsRow> = serde_json::from_str(SAMPLE_REG_DETAILS).unwrap();
+        assert_eq!(rows[0].symbol, "SBIN");
+        assert_eq!(rows[0].reg_action, None);
+    }
+
+    // Real response captured live for SBIN - `is*`/`casFlag` fields are
+    // JSON strings ("true"/"false"), not real JSON booleans.
+    const SAMPLE_SYMBOL_META: &str = r#"{"symbol":"SBIN","activeSeries":["EQ","T0"],
+        "companyName":"State Bank of India","debtSeries":[],"isFNOSec":"true","isCASec":"false",
+        "isSLBSec":"true","isDebtSec":"true","tempSuspendedSeries":["IL","N1"],
+        "isSuspended":"false","isETFSec":"false","isDelisted":"false","isin":"INE062A01020",
+        "isMunicipalBond":"false","isHybridSymbol":"false","marketType":"N",
+        "parentSymbol":"SBIN","casFlag":"true"}"#;
+
+    #[test]
+    fn deserializes_real_symbol_meta_shape_with_string_booleans() {
+        let row: SymbolMetaRow = serde_json::from_str(SAMPLE_SYMBOL_META).unwrap();
+        assert_eq!(row.symbol, "SBIN");
+        assert!(row.is_fno_eligible);
+        assert!(!row.is_corporate_action_sec);
+        assert_eq!(row.active_series, vec!["EQ", "T0"]);
+    }
+
+    // Confirmed live: an unknown symbol returns HTTP 200 with every field
+    // null instead of a 404.
+    #[test]
+    fn symbol_meta_all_null_response_is_not_the_strict_shape() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{"symbol":null,"activeSeries":null,"companyName":null,"debtSeries":null,
+                "isFNOSec":null,"isCASec":null,"isSLBSec":null,"isDebtSec":null,
+                "tempSuspendedSeries":null,"isSuspended":null,"isETFSec":null,
+                "isDelisted":null,"isin":null,"isMunicipalBond":null,"isHybridSymbol":null,
+                "marketType":null,"parentSymbol":null,"casFlag":null}"#,
+        )
+        .unwrap();
+        assert!(!value.get("symbol").is_some_and(|v| v.is_string()));
+    }
+
+    #[test]
+    fn deserializes_real_symbol_name_shape() {
+        let row: SymbolNameRow =
+            serde_json::from_str(r#"{"symbol":"SBIN","companyName":"State Bank of India"}"#)
+                .unwrap();
+        assert_eq!(row.company_name, "State Bank of India");
+    }
+
+    // Real response shape captured live for SBIN - note the two-digit
+    // year date format, unlike every other date field in this crate.
+    const SAMPLE_YEARWISE: &str = r#"[{"yesterday_chng_per":0.95,"one_week_chng_per":0.27,
+        "one_month_chng_per":-5.21,"three_month_chng_per":-2.94,"six_month_chng_per":-3.66,
+        "one_year_chng_per":14.19,"two_year_chng_per":23.98,"three_year_chng_per":66.2,
+        "five_year_chng_per":121.01,"one_week_date":"16-SEP-26","index_yesterday_chng_per":-10.33,
+        "index_one_week_chng_per":0.99,"index_one_month_chng_per":-3.32,
+        "index_three_month_chng_per":-1.58,"index_six_month_chng_per":4.15,
+        "index_one_year_chng_per":-6.84,"index_two_year_chng_per":-9.61,
+        "index_three_year_chng_per":19.18,"index_five_year_chng_per":31.55,
+        "index_one_week_date":"16-SEP-26","index_name":"NIFTY 50"}]"#;
+
+    #[test]
+    fn deserializes_real_yearwise_data_shape_with_short_year_date() {
+        let rows: Vec<YearwiseDataRow> = serde_json::from_str(SAMPLE_YEARWISE).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].one_week_date, date(2026, 9, 16));
+        assert_eq!(rows[0].index_name, "NIFTY 50");
+    }
+
+    // Real response captured live from `getGraphChart` for NIFTY 50,
+    // days=1D - note change/percent_change are real numbers here, unlike
+    // `stock_chart_data_raw`'s 1D shape (which sends them as strings).
+    const SAMPLE_INDEX_CHART_1D: &str = r#"{"data":{"identifier":"NIFTY 50","name":"NIFTY 50",
+        "grapthData":[[1790154000000,23329,"PO",0,-0.36],[1790177999000,23446.8,"NM",117.8,0.5]],
+        "closePrice":23329}}"#;
+
+    #[test]
+    fn deserializes_real_index_chart_1d_shape() {
+        let parsed: IndexChartResponse = serde_json::from_str(SAMPLE_INDEX_CHART_1D).unwrap();
+        let points: Vec<IndexChartDataPoint> = parsed
+            .data
+            .graph_data
+            .into_iter()
+            .map(index_chart_data_point_from_tuple)
+            .collect::<Result<_>>()
+            .unwrap();
+
+        assert_eq!(parsed.data.identifier, "NIFTY 50");
+        assert_eq!(points[0].session, "PO");
+        assert_eq!(points[1].change, 117.8);
+        assert_eq!(points[1].percent_change, 0.5);
+        assert_eq!(
+            points[1].timestamp,
+            date(2026, 9, 23).and_hms_opt(15, 39, 59).unwrap()
+        );
+    }
+
+    // Real response captured live for days=1W - non-1D windows send a
+    // literal 0/0 for change/percent_change, not null.
+    const SAMPLE_INDEX_CHART_1W: &str = r#"{"data":{"identifier":"NIFTY 50","name":"NIFTY 50",
+        "grapthData":[[1789516800000,23217.6,"NM",0,0],[1790121600000,23446.8,"NM",0,0]],
+        "closePrice":0}}"#;
+
+    #[test]
+    fn index_chart_1w_uses_zero_not_null_for_change() {
+        let parsed: IndexChartResponse = serde_json::from_str(SAMPLE_INDEX_CHART_1W).unwrap();
+        let points: Vec<IndexChartDataPoint> = parsed
+            .data
+            .graph_data
+            .into_iter()
+            .map(index_chart_data_point_from_tuple)
+            .collect::<Result<_>>()
+            .unwrap();
+
+        assert_eq!(points[0].change, 0.0);
+        assert_eq!(points[0].percent_change, 0.0);
     }
 }

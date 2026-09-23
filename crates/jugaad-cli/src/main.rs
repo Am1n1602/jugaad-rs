@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use jugaad_core::nse::{
-    ChartPeriod, Instrument, NseArchives, NseCorporateAnnouncements, NseCorporateResults,
-    NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote, OptionChainKind,
-    OptionType, ResultPeriod,
+    ChartPeriod, IndexChartPeriod, Instrument, NseArchives, NseCorporateAnnouncements,
+    NseCorporateResults, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
+    OptionChainKind, OptionType, ResultPeriod,
 };
 
 #[derive(Debug, Parser)]
@@ -96,6 +96,41 @@ impl From<ChartPeriodArg> for ChartPeriod {
             ChartPeriodArg::OneMonth => ChartPeriod::OneMonth,
             ChartPeriodArg::OneYear => ChartPeriod::OneYear,
             ChartPeriodArg::FiveYears => ChartPeriod::FiveYears,
+        }
+    }
+}
+
+/// Index chart time window as accepted on the command line, mapped onto
+/// jugaad_core's `IndexChartPeriod`. A larger set than `ChartPeriodArg`
+/// (stocks) - this endpoint also accepts `3m`/`6m`.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum IndexChartPeriodArg {
+    #[value(name = "1d")]
+    OneDay,
+    #[value(name = "1w")]
+    OneWeek,
+    #[value(name = "1m")]
+    OneMonth,
+    #[value(name = "3m")]
+    ThreeMonths,
+    #[value(name = "6m")]
+    SixMonths,
+    #[value(name = "1y")]
+    OneYear,
+    #[value(name = "5y")]
+    FiveYears,
+}
+
+impl From<IndexChartPeriodArg> for IndexChartPeriod {
+    fn from(period: IndexChartPeriodArg) -> Self {
+        match period {
+            IndexChartPeriodArg::OneDay => IndexChartPeriod::OneDay,
+            IndexChartPeriodArg::OneWeek => IndexChartPeriod::OneWeek,
+            IndexChartPeriodArg::OneMonth => IndexChartPeriod::OneMonth,
+            IndexChartPeriodArg::ThreeMonths => IndexChartPeriod::ThreeMonths,
+            IndexChartPeriodArg::SixMonths => IndexChartPeriod::SixMonths,
+            IndexChartPeriodArg::OneYear => IndexChartPeriod::OneYear,
+            IndexChartPeriodArg::FiveYears => IndexChartPeriod::FiveYears,
         }
     }
 }
@@ -513,6 +548,73 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/corporate_announcements")]
         output: PathBuf,
     },
+    /// List NSE's trading holidays across every market segment
+    HolidayList {
+        /// File path to save the CSV to
+        #[arg(short, long, default_value = "data/nse/holiday_list.csv")]
+        output: PathBuf,
+    },
+    /// Download NSE's whole-market index bhavcopy (daily closing snapshot
+    /// of every index) for one date
+    IndexBhavcopy {
+        /// Date, e.g. 2026-09-22
+        date: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/index_bhavcopy")]
+        output: PathBuf,
+    },
+    /// Download a symbol's SEBI registration details
+    RegDetails {
+        /// Symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/reg_details")]
+        output: PathBuf,
+    },
+    /// List the names of every index a symbol is a constituent of
+    IndexList {
+        /// Symbol, e.g. SBIN or TCS
+        symbol: String,
+    },
+    /// Download a symbol's static metadata (eligibility flags, series, ISIN)
+    SymbolMeta {
+        /// Symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/symbol_meta")]
+        output: PathBuf,
+    },
+    /// Download the company name behind a symbol
+    SymbolName {
+        /// Symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/symbol_name")]
+        output: PathBuf,
+    },
+    /// Download a symbol's price change over several trailing windows
+    /// alongside its benchmark index's change over the same windows
+    YearwiseData {
+        /// Symbol, e.g. SBIN or TCS
+        symbol: String,
+        /// Series, e.g. EQ
+        #[arg(short, long, default_value = "EQ")]
+        series: String,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/yearwise_data")]
+        output: PathBuf,
+    },
+    /// Download an index's intraday or historical price chart
+    IndexChart {
+        /// Index name, e.g. "NIFTY 50" (quote it if it contains spaces)
+        name: String,
+        /// Time window: 1d, 1w, 1m, 3m, 6m, 1y, or 5y
+        #[arg(short, long, value_enum, default_value = "1d")]
+        period: IndexChartPeriodArg,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/index_chart")]
+        output: PathBuf,
+    },
 }
 
 // clap's derive macro generates recursive command-matching code sized to
@@ -887,6 +989,66 @@ async fn run() -> anyhow::Result<()> {
             let client = NseCorporateAnnouncements::new()?;
             let path = client.download_attachment_save(&url, &output).await?;
             println!("Saved attachment to {}", path.display());
+        }
+        Command::HolidayList { output } => {
+            if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            let live = NseLiveMarket::new()?;
+            let path = live.holiday_list_csv(&output).await?;
+            println!("Saved holiday list to {}", path.display());
+        }
+        Command::IndexBhavcopy { date, output } => {
+            std::fs::create_dir_all(&output)?;
+            let history = NseIndexHistory::new()?;
+            let path = history.index_bhavcopy_save(date, &output).await?;
+            println!("Saved index bhavcopy to {}", path.display());
+        }
+        Command::RegDetails { symbol, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.reg_details_csv(&symbol, &output).await?;
+            println!("Saved reg details to {}", path.display());
+        }
+        Command::IndexList { symbol } => {
+            let quote = NseQuote::new()?;
+            for name in quote.index_list_raw(&symbol).await? {
+                println!("{name}");
+            }
+        }
+        Command::SymbolMeta { symbol, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.symbol_meta_csv(&symbol, &output).await?;
+            println!("Saved symbol meta to {}", path.display());
+        }
+        Command::SymbolName { symbol, output } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.symbol_name_csv(&symbol, &output).await?;
+            println!("Saved symbol name to {}", path.display());
+        }
+        Command::YearwiseData {
+            symbol,
+            series,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote.yearwise_data_csv(&symbol, &series, &output).await?;
+            println!("Saved yearwise data to {}", path.display());
+        }
+        Command::IndexChart {
+            name,
+            period,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let quote = NseQuote::new()?;
+            let path = quote
+                .index_chart_data_csv(&name, period.into(), &output)
+                .await?;
+            println!("Saved index chart data to {}", path.display());
         }
     }
     Ok(())

@@ -8,9 +8,9 @@
 
 use chrono::NaiveDate;
 use jugaad_core::nse::{
-    ChartPeriod, ConsolidationBasis, Instrument, NseArchives, NseCorporateAnnouncements,
-    NseCorporateResults, NseDailyReports, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
-    OptionChainKind, OptionType, ResultPeriod,
+    ChartPeriod, ConsolidationBasis, IndexChartPeriod, Instrument, NseArchives,
+    NseCorporateAnnouncements, NseCorporateResults, NseDailyReports, NseHistory, NseIndexHistory,
+    NseLiveMarket, NseQuote, OptionChainKind, OptionType, ResultPeriod,
 };
 
 fn date(y: i32, m: u32, d: u32) -> NaiveDate {
@@ -824,4 +824,121 @@ async fn large_deals_raw_returns_all_three_deal_types() {
     assert!(!rows.is_empty());
     assert!(rows.iter().any(|r| r.deal_type == "bulk"));
     assert!(rows.iter().any(|r| r.deal_type == "short"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn holiday_list_raw_covers_every_segment() {
+    let live = NseLiveMarket::new().unwrap();
+    let rows = live.holiday_list_raw().await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().any(|r| r.segment == "CM"));
+    assert!(rows.iter().any(|r| r.segment == "FO"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn reg_details_raw_fetches_sbin() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote.reg_details_raw("SBIN").await.unwrap();
+
+    assert!(!rows.is_empty());
+    assert_eq!(rows[0].symbol, "SBIN");
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_list_raw_fetches_sbin_indices() {
+    let quote = NseQuote::new().unwrap();
+    let indices = quote.index_list_raw("SBIN").await.unwrap();
+
+    assert!(!indices.is_empty());
+    assert!(indices.contains(&"NIFTY 50".to_string()));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn symbol_meta_raw_fetches_sbin() {
+    let quote = NseQuote::new().unwrap();
+    let meta = quote.symbol_meta_raw("SBIN").await.unwrap();
+
+    assert_eq!(meta.symbol, "SBIN");
+    assert!(meta.is_fno_eligible);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn symbol_meta_raw_returns_not_found_for_an_unknown_symbol() {
+    let quote = NseQuote::new().unwrap();
+    let err = quote.symbol_meta_raw("NOTAREALSYMBOL").await.unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NotFound(_)));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn symbol_name_raw_fetches_sbin() {
+    let quote = NseQuote::new().unwrap();
+    let name = quote.symbol_name_raw("SBIN").await.unwrap();
+
+    assert_eq!(name.company_name, "State Bank of India");
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn yearwise_data_raw_fetches_sbin() {
+    let quote = NseQuote::new().unwrap();
+    let rows = quote.yearwise_data_raw("SBIN", "EQ").await.unwrap();
+
+    assert_eq!(rows.len(), 1);
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_bhavcopy_raw_fetches_a_known_trading_day() {
+    let history = NseIndexHistory::new().unwrap();
+    let text = history.index_bhavcopy_raw(date(2026, 9, 18)).await.unwrap();
+
+    assert!(text.starts_with("Index Name"));
+    assert!(text.contains("Nifty 50"));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_bhavcopy_raw_reports_no_data_on_a_weekend() {
+    // 2026-09-19 was a Saturday.
+    let history = NseIndexHistory::new().unwrap();
+    let err = history
+        .index_bhavcopy_raw(date(2026, 9, 19))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NoData));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_chart_data_raw_fetches_nifty_50() {
+    let quote = NseQuote::new().unwrap();
+    let chart = quote
+        .index_chart_data_raw("NIFTY 50", IndexChartPeriod::OneDay)
+        .await
+        .unwrap();
+
+    assert_eq!(chart.identifier, "NIFTY 50");
+    assert!(!chart.points.is_empty());
+    assert!(chart.points.iter().all(|p| p.price > 0.0));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn index_chart_data_raw_returns_not_found_for_an_unknown_index() {
+    let quote = NseQuote::new().unwrap();
+    let err = quote
+        .index_chart_data_raw("NOTAREALINDEX", IndexChartPeriod::OneDay)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, jugaad_core::Error::NotFound(_)));
 }
