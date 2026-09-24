@@ -2,6 +2,11 @@
 /target/
 **/*.rs.bk
 
+# Cross-language gRPC client examples (clients/) - generated stubs and
+# installed packages, not source
+/clients/python/generated/
+/clients/node/node_modules/
+
 /.cargo/config.toml
 
 /.cache/
