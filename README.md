@@ -61,27 +61,6 @@ The live/quote endpoints above were built while NSE's market was closed, then sp
 
 Per-symbol live quotes and option chains are **not** behind Akamai bot detection, contrary to what an earlier version of this README claimed - NSE had just moved those endpoints to different URLs than the ones first tried here. See [`docs/nse-findings.md`](docs/nse-findings.md) for the full story.
 
-## What this adds beyond jugaad-data
-
-**Data jugaad-data doesn't have at all:**
-- **Financial-results filings + XBRL/HTML download** (`NseCorporateResults`) - the older Regulation 33 filing type, which is the only source for machine-readable financials before the newer Integrated Filing framework existed (roughly FY2024-25). Company financials going back to FY2012-13 (for TCS; likely similar for other long-listed companies) aren't reachable through jugaad-data at all. This crate also implements the newer framework itself (`NseCorporateAnnouncements::corporate_integrated_filing_raw`, matching jugaad-data's `corporate_integrated_filing`), so it's not an either/or - both filing generations are covered here.
-
-**Data jugaad-data's own equivalent doesn't actually return:**
-- **Top gainers/losers** (`market_movers_raw`) - jugaad-data's `top_stocks()` calls NSE's `getTopTenStock`, confirmed live to only ever populate its `topGainers` field; every other field it claims to have (including `topLoosers`) came back empty across repeated checks with the market open. This crate implements the same feature against `live-analysis-variations` instead - the endpoint NSE's own live gainers/losers page actually calls - found by inspecting that page's network requests after `getTopTenStock` turned out to be half-dead.
-
-**Real correctness issues avoided or caught**
-- **A live date bug jugaad-data actually has.** NSE's stock-history API returns two date fields for the same row - `mTIMESTAMP` (correct) and `CH_TIMESTAMP` (a UTC-shifted timestamp that lands on the wrong calendar day if read directly). jugaad-data uses `CH_TIMESTAMP`; this crate uses `mTIMESTAMP` instead, confirmed live.
-- **The same UTC-shift bug, found again in a second endpoint.** The stock chart-data endpoint's per-point epoch timestamps have the identical problem as `CH_TIMESTAMP` above - built from IST wall-clock digits but labeled as UTC. Caught by comparing a live point's timestamp against a same-moment live quote's `last_update_time` (genuine IST) and finding a ~5:30 gap; corrected before being exposed publicly, so this crate never emits the wrong instant in the first place.
-- **Type-safety that makes a documented real-world mistake impossible to write.** Financial filings mark whether figures are consolidated via a string field - `"Consolidated"` or `"Non-Consolidated"`. A plain substring check for `"consolidated"` matches inside `"Non-Consolidated"` too. jugaad-data hands this back as an untyped string either way; this crate models it (and the equivalent audited/not-audited field) as enums, so that specific mistake can't be written at all.
-- **NSE's own data is inconsistently typed, and this crate surfaces that immediately instead of silently absorbing it.** Confirmed live: the same numeric field (open interest, on F&O contracts) comes back as a JSON integer for some contracts and a JSON float for others in the identical response. A dynamically-typed client just accepts either silently; this crate's strict deserialization caught the inconsistency immediately during testing.
-- **A silent multi-month ordering bug, caught by testing against real exported output.** Every history endpoint that splits a long date range into per-month chunks was concatenating those chunks assuming NSE returns each one oldest-first - confirmed live that NSE actually returns each chunk newest-first, which without a fix scrambles a multi-month CSV into a "sawtooth" (descending within each month, ascending month to month) rather than one consistent order.
-
-**Structural**
-- `unsafe_code = "forbid"` at the workspace level - a checkable guarantee, enforced by the compiler on every build.
-- A running, dated log of every undocumented NSE quirk found ([`docs/nse-findings.md`](docs/nse-findings.md)) - the endpoint migrations, date-format traps, and schema-per-segment differences above are all recorded there with how they were confirmed.
-- A single static binary (`cargo build --release`) as an alternative to the library - no interpreter or `pip install` needed to just download data.
-
-One function is deliberately not implemented - see below.
 
 ## Not implemented
 

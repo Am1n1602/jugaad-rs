@@ -1,0 +1,28 @@
+[package]
+name = "jugaad-rpc"
+description = "gRPC server exposing jugaad-core to non-Rust frontends"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "jugaad-rpc"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+jugaad-core = { path = "../jugaad-core" }
+prost = "0.14.4"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tokio-stream = "0.1.19"
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
+
+[build-dependencies]
+protoc-bin-vendored = "3.2.0"
+tonic-prost-build = "0.14.6"
