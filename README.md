@@ -1,6 +1,7 @@
 # jugaad-rs
 
 [![CI](https://github.com/Am1n1602/jugaad-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Am1n1602/jugaad-rs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Am1n1602/jugaad-rs)](https://github.com/Am1n1602/jugaad-rs/releases/latest)
 
 A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a Python library for downloading historical and live market data from NSE (National Stock Exchange of India). This project follows the same behavior where it makes sense, but is written idiomatically in Rust rather than as a line-by-line port - see [`docs/nse-findings.md`](docs/nse-findings.md) for the API details this rewrite has had to work out from scratch, since NSE's endpoints have no official documentation.
 
@@ -91,6 +92,12 @@ One function is deliberately not implemented - see below.
 - Rust 1.88 or newer (see `rust-toolchain.toml` - `rustup` will pick this up automatically)
 
 ## Building
+
+Prebuilt binaries for Linux, macOS (Intel and Apple Silicon), and Windows
+are attached to every [release](https://github.com/Am1n1602/jugaad-rs/releases/latest) -
+download the one for your platform and skip building from source entirely.
+
+To build from source instead:
 
 ```bash
 git clone https://github.com/Am1n1602/jugaad-rs.git
