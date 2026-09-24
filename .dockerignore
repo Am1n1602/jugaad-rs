@@ -1,0 +1,7 @@
+target/
+.git/
+data/
+clients/python/generated/
+clients/node/node_modules/
+
+.cargo/config.toml

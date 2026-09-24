@@ -7,10 +7,18 @@ the same two RPCs - `GetStockQuote` (unary) and `WatchStockQuote`
 (server-streaming) - against `crates/jugaad-rpc/proto/jugaad.proto`, the
 single source of truth both clients build from.
 
-Start the server first, from the repo root:
+Start the server first, from the repo root - either directly:
 
 ```bash
 cargo run -p jugaad-rpc
+```
+
+or via Docker, which needs no Rust toolchain at all (useful if you're
+only working from the Python/Node side):
+
+```bash
+docker build -f crates/jugaad-rpc/Dockerfile -t jugaad-rpc .
+docker run --rm -p 50051:50051 jugaad-rpc
 ```
 
 ## Python
