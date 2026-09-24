@@ -54,9 +54,9 @@ Bhavcopy and F&O bhavcopy both automatically pick the right format for the date 
 
 An optional `dataframe` Cargo feature adds `jugaad_core::dataframe::to_dataframe`, converting any `Vec<Row>` from the table above into a `polars::DataFrame`. It's one generic function, not a conversion method per type - every row type already implements `Serialize` (for CSV export), so rows are serialized to newline-delimited JSON in memory and handed to polars' own JSON reader, rather than hand-writing a column builder for each of the ~20 row types in this crate. Enable it with `jugaad-core = { path = "...", features = ["dataframe"] }`.
 
-`NseCorporateResults` only supports the `equities` and `sme` segments - confirmed live, NSE's `insurance` and `reitsinvits` segments return a completely different, incompatible response shape through the same endpoint (not a documentation gap, a real schema difference), and `debt` returned no data in testing. See [`docs/nse-findings.md`](docs/nse-findings.md#corporates-financial-results-returns-a-genuinely-different-schema-per-segment) for the full breakdown.
+`NseCorporateResults` only supports the `equities` and `sme` segments - confirmed live, NSE's `insurance` and `reitsinvits` segments return a completely different, incompatible response shape through the same endpoint (not a documentation gap, a real schema difference), and `debt` returned no data in testing. See [`docs/nse-findings.md`](docs/nse-findings.md#corporates-financial-results) for the full breakdown.
 
-The live/quote endpoints above were built while NSE's market was closed, then spot-checked again live with the market genuinely open (2026-09-21) - order book depth and index values do populate/move as expected; `market-turnover`'s same-day figures and the Currency/Commodity/Debt segments' snapshot values turned out to just never populate through these endpoints, open market or not, which is now confirmed rather than assumed. See [`docs/nse-findings.md`](docs/nse-findings.md#the-market-hours-retest-done-live-on-2026-09-21-nse-genuinely-open) for the full rundown.
+The live/quote endpoints above were built while NSE's market was closed, then spot-checked again live with the market genuinely open (2026-09-21) - order book depth and index values do populate/move as expected; `market-turnover`'s same-day figures and the Currency/Commodity/Debt segments' snapshot values turned out to just never populate through these endpoints, open market or not, which is now confirmed rather than assumed. See [`docs/nse-findings.md`](docs/nse-findings.md#market-hours-retest-2026-09-21-market-genuinely-open) for the full rundown.
 
 Per-symbol live quotes and option chains are **not** behind Akamai bot detection, contrary to what an earlier version of this README claimed - NSE had just moved those endpoints to different URLs than the ones first tried here. See [`docs/nse-findings.md`](docs/nse-findings.md) for the full story.
 
@@ -80,11 +80,11 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 - A running, dated log of every undocumented NSE quirk found ([`docs/nse-findings.md`](docs/nse-findings.md)) - the endpoint migrations, date-format traps, and schema-per-segment differences above are all recorded there with how they were confirmed.
 - A single static binary (`cargo build --release`) as an alternative to the library - no interpreter or `pip install` needed to just download data.
 
-One gap remains before this is a strict superset of jugaad-data - see Pending below.
+One function is deliberately not implemented - see below.
 
-## Pending
+## Not implemented
 
-- **`pre_open_market`** - NSE's pre-open session data only exists during the actual pre-open window (roughly 9:00-9:15 IST each trading day); confirmed live outside that window that the endpoint works but has nothing to show (`{"data":[],"msg":"No Data Found"}`), so the real row shape is still unconfirmed. See [`docs/nse-findings.md`](docs/nse-findings.md#pre_open_market---shape-not-yet-confirmed-needs-the-actual-pre-open-window).
+- **`pre_open_market`** - dropped from scope for now. NSE's pre-open session data only exists during the actual pre-open window (roughly 9:00-9:15 IST each trading day), which makes it impractical to verify and maintain the same way as everything else here; confirmed live outside that window that the endpoint works but has nothing to show (`{"data":[],"msg":"No Data Found"}`), so the real row shape was never confirmed. See [`docs/nse-findings.md`](docs/nse-findings.md#pre_open_market) for what was found before this was scoped out.
 
 ## Requirements
 

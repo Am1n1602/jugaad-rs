@@ -121,7 +121,7 @@ Saved bhavcopy to data/nse/daily_bhavcopy/cm01Aug2024bhav.csv
   (the old format has an `ISIN` column the new one doesn't); this command
   picks the right one automatically based on `<DATE>`, so you don't need
   to do anything differently either way. See
-  [nse-findings.md](nse-findings.md#bhavcopy-format-changed-on-2024-07-08).
+  [nse-findings.md](nse-findings.md#bhavcopy).
 - If `<DATE>` falls on a weekend, holiday, or a day NSE hasn't published
   data for yet, the command fails with a "no data" error rather than
   producing an empty or corrupt file.
@@ -384,7 +384,7 @@ records - NSE didn't track these in its earlier history.
   you don't need to do anything differently for long ranges.
 - `--series` filters results to exactly that series. Pass `--series ALL`
   to get every series NSE has for that symbol/date instead of just one.
-  See [nse-findings.md](nse-findings.md#seriesall-returns-every-series-not-just-the-default-one)
+  See [nse-findings.md](nse-findings.md#stockderivatives-history-nseindiacom)
   for why this matters.
 - If the range has no trading days (e.g. it only covers a weekend) or the
   symbol doesn't exist, the command still succeeds, but writes a
@@ -711,13 +711,13 @@ Saved market status to data/nse/market_status.csv
   (NSE sends an empty value for them, not a stale last-known number) and
   are kept as raw text rather than parsed to numbers, since NSE sends them
   in inconsistent shapes (plain number, numeric string, or empty) across
-  segments. See [nse-findings.md](nse-findings.md#marketstatuss-marketstate-array-has-no-consistent-shape).
+  segments. See [nse-findings.md](nse-findings.md#marketstatus).
 - NSE's response also includes a few extra entries that don't name a real
   market segment (a USD-adjusted NIFTY figure, for instance) - those are
   dropped, not included in the output.
-- Built and verified while the market was closed - not yet spot-checked
-  during actual trading hours. See
-  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+- Confirmed live with the market open too - the same closed-segment
+  blank-field behavior holds either way. See
+  [nse-findings.md](nse-findings.md#marketstatus).
 
 ---
 
@@ -763,9 +763,9 @@ Saved index snapshot to data/nse/index_snapshot.csv
 - This is the live counterpart to `index`/`index-pe`/`index-tri` - those
   three fetch historical data over a date range; this one is a single
   point-in-time snapshot across every index at once.
-- Built and verified while the market was closed - not yet spot-checked
-  during actual trading hours. See
-  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+- Confirmed live with the market open too - values move intraday as
+  expected. See
+  [nse-findings.md](nse-findings.md#market-hours-retest-2026-09-21-market-genuinely-open).
 
 ---
 
@@ -806,9 +806,9 @@ Saved market turnover to data/nse/market_turnover.csv
 - NSE's response also includes a same-day ("today") figure per segment;
   it's not included here, since it's empty/null while the market's closed
   and shaped differently for the "Total" row than every other segment.
-- Built and verified while the market was closed - it's untested whether
-  the dropped "today" figure actually populates during live trading. See
-  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+- Confirmed live with the market open too - the dropped "today" figure
+  stays empty either way. See
+  [nse-findings.md](nse-findings.md#market-hours-retest-2026-09-21-market-genuinely-open).
 
 ---
 
@@ -851,12 +851,11 @@ Saved live F&O snapshot to data/nse/live_fo.csv
 - This is a whole-market NIFTY F&O snapshot, distinct from
   `derivative-quote` (below), which fetches every contract for one
   specific symbol - see
-  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead)
+  [nse-findings.md](nse-findings.md#per-symbol-live-endpoints-moved-urls)
   for how these two relate.
-- Built and verified while the market was closed - it's untested whether
-  more contracts (or NIFTY options) appear in this same bucket during
-  active trading. See
-  [nse-findings.md](nse-findings.md#live-endpoints-have-only-been-verified-while-the-market-was-closed).
+- Confirmed live with the market open too - still exactly 3 rows, all
+  `FUTIDX`, no NIFTY options in this bucket. See
+  [nse-findings.md](nse-findings.md#market-hours-retest-2026-09-21-market-genuinely-open).
 
 ---
 
@@ -902,7 +901,7 @@ this command flattens them into one CSV tagged by this column.
 - `status`/`ex_date`/`purpose` were blank in every deal seen live - kept
   in the output in case they populate for a deal tied to a corporate
   action. See
-  [nse-findings.md](nse-findings.md#block-deals-two-separate-session-lists-flattened-into-one-tagged-vec).
+  [nse-findings.md](nse-findings.md#block-deals-live-session).
 
 ---
 
@@ -947,7 +946,7 @@ this command flattens them into one CSV tagged by this column.
 - `option_type` is `"Call"`/`"Put"`/`"-"` here - a different vocabulary
   than the `"CE"`/`"PE"`/`"XX"` used by `derivatives`/`live-fo`/
   `derivative-quote`. See
-  [nse-findings.md](nse-findings.md#eq_derivative_turnover-two-top-20-leaderboards-one-response-no-cookie).
+  [nse-findings.md](nse-findings.md#eq_derivative_turnover).
 - Takes no arguments - always covers `index=allcontracts`, the only value
   confirmed live, though NSE's API may accept others (untested).
 
@@ -999,7 +998,7 @@ columns.
   requests under the hood, one per direction).
 - `change`/`percent_change` are genuinely different fields, not a
   duplicate pair, despite matching in most rows - confirmed live. See
-  [nse-findings.md](nse-findings.md#top_stocks-implemented-via-live-analysis-variations-not-gettoptenstock).
+  [nse-findings.md](nse-findings.md#top_stocks-gainerslosers).
 - This replaces `getTopTenStock` (what Python's `top_stocks()` uses),
   which only reliably returns its gainers field - see the findings doc
   above for why.
@@ -1224,7 +1223,7 @@ dropped.
 - NSE's real response also carries ~70 more fields (compliance/margin
   data mostly relevant to debt securities, not equities) that aren't
   included here. See
-  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+  [nse-findings.md](nse-findings.md#per-symbol-live-endpoints-moved-urls).
 
 ---
 
@@ -1283,7 +1282,7 @@ every other window.
   this endpoint 404s rather than returning an empty result.
 - `timestamp` is already corrected to real IST wall-clock time - NSE's
   raw epoch value is built from IST digits mislabeled as UTC. See
-  [nse-findings.md](nse-findings.md#chart_datatick_data-resolved-2026-09-21-same-root-cause-as-the-per-symbol-quotes).
+  [nse-findings.md](nse-findings.md#charttick-data).
 
 ---
 
@@ -1377,7 +1376,7 @@ Saved index quote to data/nse/index_quote/NIFTY 50-quote.csv
   `index`/`index-pe`/`index-tri` (which write an empty file for an unknown
   name), there's no "market closed" ambiguity for a live lookup, so an
   empty result unambiguously means the name was wrong. See
-  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+  [nse-findings.md](nse-findings.md#per-symbol-live-endpoints-moved-urls).
 - Different data from `index-snapshot` (adds traded volume/value, drops
   P/E-P/B-dividend-yield and market breadth) - not a filtered view of the
   same endpoint.
@@ -1435,7 +1434,7 @@ expiries for the same symbol don't overwrite each other's files.
 - A strike with no real contract on one side (common for deep in/out-of-
   the-money equity strikes) is skipped entirely for that side, rather than
   written as a mostly-empty row - confirmed live. See
-  [nse-findings.md](nse-findings.md#correction-per-symbol-live-quotes-are-not-behind-a-bot-wall---the-old-urls-were-just-dead).
+  [nse-findings.md](nse-findings.md#per-symbol-live-endpoints-moved-urls).
 - Without `--expiry`, the nearest available expiry is looked up
   automatically via a separate request - matching the Python original's
   default behavior.
@@ -1536,7 +1535,7 @@ Saved financial results to data/nse/financial_results/TCS-equities-annual-financ
   different, incompatible response shape through this same NSE endpoint
   (not modeled here - would fail to parse), and `debt` returned no data
   in any test. See
-  [nse-findings.md](nse-findings.md#corporates-financial-results-returns-a-genuinely-different-schema-per-segment).
+  [nse-findings.md](nse-findings.md#corporates-financial-results).
 - `xbrl_url` is blank for filings before real XBRL existed (roughly
   pre-FY2018-19 for equities) - use `result_detailed_data_link` instead
   for those, via `download-result-html`. Neither may be populated for a
@@ -1826,7 +1825,7 @@ Saved index bhavcopy to data/nse/index_bhavcopy/ind_close_all_22092026.csv
   data for yet, the command fails with a "no data" error - detected via
   the response's `Content-Type` header (`text/html` for a soft-404 page)
   since NSE returns HTTP 200 either way. See
-  [nse-findings.md](nse-findings.md#whole-market-index-bhavcopy-pythons-url-format-is-dead-the-real-one-uses-a-numeric-month).
+  [nse-findings.md](nse-findings.md#niftyindicescom-index-history).
 - If the file already exists at the target path, it's reused rather than
   re-downloaded.
 
@@ -2094,7 +2093,7 @@ windows instead of omitting them, unlike the stock endpoint's `null`.
 - A different, larger period set than `stock-chart`: this endpoint also
   accepts `3m`/`6m` (which 500 through `stock-chart`), but still rejects
   `3y`/an "all" window the same way. See
-  [nse-findings.md](nse-findings.md#index-price-charts-a-different-endpoint-from-stock-charts-with-different-quirks).
+  [nse-findings.md](nse-findings.md#index-price-charts).
 - Fails with a "not found" error for an unknown index name - confirmed
   live, this endpoint 404s rather than returning an empty result.
 - `timestamp` is already corrected to real IST wall-clock time, same fix
@@ -2161,7 +2160,7 @@ doesn't actually resolve to anything.
   regardless of how many requests that took.
 - Python jugaad-data's `issuer` filter is not exposed here - confirmed
   live to have no effect at all. See
-  [nse-findings.md](nse-findings.md#corporate_integrated_filing-real-endpoint-several-gaps-vs-pythons-assumptions).
+  [nse-findings.md](nse-findings.md#sebi-integrated-filing).
 - Also downloadable via `download-announcement-attachment`: pass any of
   a row's `xbrl_url`, `ixbrl_url`, or `pdf_attachment_url` columns to
   fetch the actual filing document.
