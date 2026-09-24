@@ -1,0 +1,17 @@
+{
+  "name": "jugaad-rs",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "remoteUser": "vscode",
+  "postCreateCommand": "rustup show && cargo fetch --locked",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "usernamehw.errorlens",
+        "fill-labs.dependi"
+      ]
+    }
+  }
+}
