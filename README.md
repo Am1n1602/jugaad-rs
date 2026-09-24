@@ -154,7 +154,7 @@ More usage examples live in [`crates/jugaad-core/examples/`](crates/jugaad-core/
 
 - [`crates/jugaad-core`](crates/jugaad-core/) - the library: NSE client types, request/response handling, error types
 - [`crates/jugaad-cli`](crates/jugaad-cli/) - the `jugaad` command-line binary, built on top of `jugaad-core`
-- [`crates/jugaad-rpc`](crates/jugaad-rpc/) - a `tonic` gRPC server exposing `jugaad-core` to non-Rust frontends (also runnable via the included `Dockerfile`, no Rust toolchain needed); see [`clients/`](clients/) for working Python and Node.js example clients against it
+- [`crates/jugaad-rpc`](crates/jugaad-rpc/) - a `tonic` gRPC server exposing `jugaad-core` to non-Rust frontends. Published at `ghcr.io/am1n1602/jugaad-rpc` (`docker run -p 50051:50051 ghcr.io/am1n1602/jugaad-rpc:latest`), no Rust toolchain needed; see [`clients/`](clients/) for working Python and Node.js example clients against it
 
 ## Development
 
