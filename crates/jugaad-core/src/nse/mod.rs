@@ -10,7 +10,7 @@ pub mod quote;
 
 pub use archives::NseArchives;
 pub use corporate_announcements::{
-    CorporateAnnouncementRow, NseCorporateAnnouncements, SseAnnouncementRow,
+    CorporateAnnouncementRow, IntegratedFilingRow, NseCorporateAnnouncements, SseAnnouncementRow,
 };
 pub use corporate_results::{
     AuditStatus, ConsolidationBasis, FinancialResultRow, NseCorporateResults, ResultPeriod,

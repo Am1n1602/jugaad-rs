@@ -14,6 +14,13 @@
 //! instead of `attchmntFile`/`desc`/`an_dt`/`sm_name`/...) - modeled
 //! separately as `SseAnnouncementRow` via `sse_announcements_raw` rather
 //! than excluded.
+//!
+//! Also covers SEBI's newer "Integrated Filing" framework
+//! (`corporate_integrated_filing_raw`) - a different endpoint
+//! (`/api/integrated-filing-results`) on the same corporate-filings family
+//! of pages, confirmed live to support both `"Integrated Filing-
+//! Financials"` and `"Integrated Filing- Governance"` filing types through
+//! one shared response shape.
 
 use std::path::{Path, PathBuf};
 
@@ -22,6 +29,7 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::USER_AGENT;
+use super::dates::deserialize_nse_date;
 use super::live::{download_bytes, filename_from_url, write_csv};
 use crate::error::{Error, Result};
 
@@ -169,6 +177,126 @@ impl<T> AnnouncementsResponse<T> {
             AnnouncementsResponse::Other { data } => data,
         }
     }
+}
+
+/// One SEBI Integrated Filing entry - a combined financial/governance
+/// disclosure framework, newer than the older Regulation 33 filings
+/// `NseCorporateResults` covers.
+///
+/// `company_name`/`security_name` (`cmName`/`smName` on the wire) look
+/// like duplicates but aren't always identical - confirmed live, they
+/// differ in casing on about 1% of rows (e.g. `"Ghcl Textiles Limited"`
+/// vs `"GHCL Textiles Limited""`), so both are kept rather than dropping
+/// one as redundant.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IntegratedFilingRow {
+    pub symbol: Option<String>,
+    #[serde(rename(deserialize = "cmName"))]
+    pub company_name: String,
+    #[serde(rename(deserialize = "smName"))]
+    pub security_name: String,
+    // "Integrated Filing- Financials" or "Integrated Filing- Governance" -
+    // confirmed live as the two real values, kept as a free string since
+    // NSE may add more over time (same reasoning as `category` above).
+    #[serde(rename(deserialize = "type"))]
+    pub filing_type: String,
+    #[serde(rename(deserialize = "type_Sub"))]
+    pub filing_sub_type: String,
+    #[serde(
+        rename(deserialize = "qe_Date"),
+        deserialize_with = "deserialize_nse_date"
+    )]
+    pub period_ended: NaiveDate,
+    // "Audited"/"Un-Audited" for the Financials type, `null` for
+    // Governance - kept as NSE's own text label rather than inverted into
+    // a bool, since it isn't a `"true"`/`"false"` wire value.
+    pub audited: Option<String>,
+    // "Standalone"/"Consolidated" for Financials, `null` for Governance.
+    pub consolidated: Option<String>,
+    #[serde(
+        rename(deserialize = "broadcast_Date"),
+        deserialize_with = "deserialize_announcement_time_opt"
+    )]
+    pub broadcast_time: Option<NaiveDateTime>,
+    #[serde(
+        rename(deserialize = "creation_Date"),
+        deserialize_with = "deserialize_announcement_time"
+    )]
+    pub creation_time: NaiveDateTime,
+    #[serde(
+        rename(deserialize = "revised_Date"),
+        deserialize_with = "deserialize_announcement_time_opt"
+    )]
+    pub revised_time: Option<NaiveDateTime>,
+    #[serde(rename(deserialize = "revision_Remark"))]
+    pub revision_remark: Option<String>,
+    #[serde(rename(deserialize = "xbrl"))]
+    pub xbrl_url: String,
+    // Confirmed live: `null` on some Governance-type rows (14 of 36
+    // checked over one window), unlike every other file-size field in
+    // this module - not the always-populated string a smaller sample
+    // suggested.
+    #[serde(rename(deserialize = "xbrlFileSize"))]
+    pub xbrl_file_size: Option<String>,
+    #[serde(rename(deserialize = "ixbrl"))]
+    pub ixbrl_url: String,
+    #[serde(rename(deserialize = "ixbrlFileSize"))]
+    pub ixbrl_file_size: Option<String>,
+    // Confirmed live across 1000 real rows: `null` (188/1000), a dead
+    // sentinel literally ending in `/null` when no PDF exists (674/1000),
+    // or a genuinely real, working URL (138/1000). Both "no attachment"
+    // cases are normalized to `None` here rather than leaking the dead
+    // sentinel URL as if it were real - same treatment as the `"-"`
+    // placeholder fixed on `FiftyTwoWeekRow`.
+    #[serde(
+        rename(deserialize = "pdf_attach"),
+        deserialize_with = "deserialize_pdf_attachment_url"
+    )]
+    pub pdf_attachment_url: Option<String>,
+    // Confirmed live: this is the real PDF's size (up to tens of MB) when
+    // `pdf_attachment_url` is real, not a dead/always-zero field - an
+    // earlier 5-row sample happened to have no real attachments and made
+    // it look that way.
+    #[serde(rename(deserialize = "attFileSize"))]
+    pub pdf_attachment_file_size: Option<String>,
+    #[serde(
+        rename(deserialize = "seq_Id"),
+        deserialize_with = "deserialize_numeric_string"
+    )]
+    pub sequence_id: u64,
+}
+
+fn deserialize_announcement_time_opt<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<NaiveDateTime>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: Option<String> = Option::deserialize(deserializer)?;
+    raw.map(|s| {
+        NaiveDateTime::parse_from_str(&s, "%d-%b-%Y %H:%M:%S").map_err(serde::de::Error::custom)
+    })
+    .transpose()
+}
+
+fn deserialize_pdf_attachment_url<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: Option<String> = Option::deserialize(deserializer)?;
+    Ok(raw.filter(|url| !url.ends_with("/null")))
+}
+
+/// `/api/integrated-filing-results` always wraps its rows in this
+/// envelope (unlike `/api/corporate-announcements`, which returns a bare
+/// array on success) - confirmed live, even the "missing required `type`
+/// param" error case includes an empty `data` array, so no untagged-enum
+/// trick is needed here.
+#[derive(Debug, Deserialize)]
+struct IntegratedFilingResponse<T> {
+    data: Vec<T>,
 }
 
 #[derive(Debug, Clone)]
@@ -320,10 +448,129 @@ impl NseCorporateAnnouncements {
         write_csv(&rows, &path)
     }
 
-    /// Downloads the raw attachment from `CorporateAnnouncementRow::attachment_url`
-    /// or `SseAnnouncementRow::attachment_url` - a PDF in every case
-    /// checked live, but downloaded as-is rather than assumed, the same
-    /// as `NseCorporateResults::download_xbrl_raw`/`download_result_html_raw`.
+    /// Fetches SEBI Integrated Filing entries between `from_date` and
+    /// `to_date` (inclusive) for `filing_type` (e.g. `"Integrated Filing-
+    /// Financials"` or `"Integrated Filing- Governance"` - confirmed live
+    /// as the two real values). `symbol` and `segment` (NSE's `index`
+    /// query param - e.g. `"equities"`/`"sme"`) are optional filters,
+    /// both confirmed live to genuinely narrow the result set.
+    ///
+    /// Unlike `corporate_announcements_raw`, NSE doesn't actually require
+    /// a date range here (a bare unfiltered call succeeds), but this
+    /// still takes one to keep results bounded - a global fetch would
+    /// otherwise page through NSE's entire history (26,000+ rows and
+    /// growing). Auto-paginates internally at 1000 rows per page
+    /// (confirmed live, no smaller cap) until a short page signals the
+    /// end, so the caller gets one flat `Vec` regardless of how many
+    /// pages that took.
+    ///
+    /// Two of Python's filters are deliberately not exposed here. NSE's
+    /// `period_ended` (e.g. `"30-JUN-2026"`) is confirmed live to
+    /// genuinely filter, but is left out to keep this signature under
+    /// clippy's argument-count lint - `from_date`/`to_date` already cover
+    /// the general time-narrowing need. `issuer` is dropped for a
+    /// different reason: confirmed live to have no effect at all (a
+    /// garbage value returns the exact same result as no filter), so it
+    /// isn't a real filter to build an API around.
+    pub async fn corporate_integrated_filing_raw(
+        &self,
+        filing_type: &str,
+        symbol: Option<&str>,
+        segment: Option<&str>,
+        from_date: NaiveDate,
+        to_date: NaiveDate,
+    ) -> Result<Vec<IntegratedFilingRow>> {
+        const PAGE_SIZE: usize = 1000;
+        let from_str = from_date.format("%d-%m-%Y").to_string();
+        let to_str = to_date.format("%d-%m-%Y").to_string();
+        let page_size_str = PAGE_SIZE.to_string();
+
+        let mut rows = Vec::new();
+        let mut page = 1u32;
+        loop {
+            let page_str = page.to_string();
+            let mut query = vec![
+                ("type", filing_type),
+                ("from_date", from_str.as_str()),
+                ("to_date", to_str.as_str()),
+                ("page", page_str.as_str()),
+                ("size", page_size_str.as_str()),
+            ];
+            if let Some(symbol) = symbol {
+                query.push(("symbol", symbol));
+            }
+            if let Some(segment) = segment {
+                query.push(("index", segment));
+            }
+
+            let response = self
+                .client
+                .get(format!("{BASE_URL}/api/integrated-filing-results"))
+                .query(&query)
+                .send()
+                .await?;
+
+            match response.status() {
+                StatusCode::OK => {}
+                StatusCode::FORBIDDEN => return Err(Error::Blocked),
+                status => return Err(Error::UnexpectedStatus(status)),
+            }
+
+            let parsed: IntegratedFilingResponse<IntegratedFilingRow> =
+                response.json().await.map_err(|e| {
+                    Error::Parse(format!("could not parse integrated filing response: {e}"))
+                })?;
+
+            let fetched = parsed.data.len();
+            rows.extend(parsed.data);
+            if fetched < PAGE_SIZE {
+                break;
+            }
+            page += 1;
+        }
+
+        Ok(rows)
+    }
+
+    /// Fetches integrated filings the same way as
+    /// `corporate_integrated_filing_raw`, then writes them as a CSV file
+    /// into `dest` (a directory - the filename is derived from `symbol`,
+    /// `filing_type`, and the date range). Returns the path written.
+    pub async fn corporate_integrated_filing_csv(
+        &self,
+        filing_type: &str,
+        symbol: Option<&str>,
+        segment: Option<&str>,
+        from_date: NaiveDate,
+        to_date: NaiveDate,
+        dest: &Path,
+    ) -> Result<PathBuf> {
+        let rows = self
+            .corporate_integrated_filing_raw(filing_type, symbol, segment, from_date, to_date)
+            .await?;
+        // "Integrated Filing- Financials" -> "financials", matching NSE's
+        // own two real filing-type values.
+        let type_slug = filing_type
+            .rsplit(' ')
+            .next()
+            .unwrap_or(filing_type)
+            .to_lowercase();
+        let file_name = match symbol {
+            Some(symbol) => {
+                format!("{symbol}-{type_slug}-integrated-filing-{from_date}-{to_date}.csv")
+            }
+            None => format!("{type_slug}-integrated-filing-{from_date}-{to_date}.csv"),
+        };
+        let path = dest.join(file_name);
+        write_csv(&rows, &path)
+    }
+
+    /// Downloads the raw attachment from `CorporateAnnouncementRow::attachment_url`,
+    /// `SseAnnouncementRow::attachment_url`, or any of
+    /// `IntegratedFilingRow`'s `xbrl_url`/`ixbrl_url`/`pdf_attachment_url` -
+    /// a PDF in every case checked live for the announcement URLs, but
+    /// downloaded as-is rather than assumed, the same as
+    /// `NseCorporateResults::download_xbrl_raw`/`download_result_html_raw`.
     pub async fn download_attachment_raw(&self, url: &str) -> Result<Vec<u8>> {
         download_bytes(&self.client, url).await
     }
@@ -514,5 +761,131 @@ mod tests {
         assert_eq!(row.symbol, Some("EF-SE".to_string()));
         assert_eq!(row.file_size, None);
         assert!(!row.attachment_url.is_empty());
+    }
+
+    // Real response captured live from /api/integrated-filing-results for
+    // the Financials type - a dead pdf_attach sentinel (ends in `/null`),
+    // which should normalize to `None`.
+    const SAMPLE_INTEGRATED_FILING_FINANCIALS: &str = r#"{"data":[{
+        "attFileSize":"0 Bytes","audited":"Un-Audited","broadcast_Date":"23-Sep-2026 19:18:03",
+        "cmName":"Winsome Yarns Limited","consolidated":"Standalone",
+        "creation_Date":"23-Sep-2026 19:19:30","diff":"00:01:27",
+        "ixbrl":"https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_195779_23092026191929_iXBRL_WEB.html",
+        "ixbrlFileSize":"45.93 KB","pdf_attach":"https://nsearchives.nseindia.com/corporate/null",
+        "qe_Date":"30-JUN-2026","revised_Date":null,"revision_Remark":null,"seq_Id":"195779",
+        "smName":"Winsome Yarns Limited","symbol":"WINSOME","type":"Integrated Filing- Financials",
+        "type_Sub":"Original",
+        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_1727118_23092026071929_WEB.xml",
+        "xbrlFileSize":"19.92 KB"
+    }],"size":5,"page":0,"totalCount":26772}"#;
+
+    #[test]
+    fn deserializes_real_financials_shape_and_normalizes_dead_pdf_sentinel() {
+        let parsed: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(SAMPLE_INTEGRATED_FILING_FINANCIALS).unwrap();
+        let row = &parsed.data[0];
+
+        assert_eq!(row.symbol, Some("WINSOME".to_string()));
+        assert_eq!(row.filing_type, "Integrated Filing- Financials");
+        assert_eq!(row.filing_sub_type, "Original");
+        assert_eq!(row.audited, Some("Un-Audited".to_string()));
+        assert_eq!(row.period_ended, date(2026, 6, 30));
+        assert_eq!(
+            row.broadcast_time,
+            Some(date(2026, 9, 23).and_hms_opt(19, 18, 3).unwrap())
+        );
+        assert_eq!(row.revised_time, None);
+        assert_eq!(row.pdf_attachment_url, None);
+        assert_eq!(row.sequence_id, 195_779);
+    }
+
+    // Real response captured live for the Governance type - `audited`/
+    // `consolidated` are `null` (not applicable to governance filings),
+    // and `pdf_attach` is a genuinely real, working URL here.
+    const SAMPLE_INTEGRATED_FILING_GOVERNANCE: &str = r#"{"data":[{
+        "attFileSize":"1.02 MB","audited":null,"broadcast_Date":"19-Sep-2026 13:24:26",
+        "cmName":"Morarjee Textiles Limited","consolidated":null,
+        "creation_Date":"19-Sep-2026 13:24:29","diff":"00:00:03",
+        "ixbrl":"https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_GOVERNANCE_194861_19092026132428_iXBRL_WEB.html",
+        "ixbrlFileSize":"42.16 KB",
+        "pdf_attach":"https://nsearchives.nseindia.com/corporate/HOVS_22092026134458_HGM-Clarification22Sept2026.pdf",
+        "qe_Date":"30-JUN-2026","revised_Date":"23-SEP-2026 18:17:08",
+        "revision_Remark":"Revised","seq_Id":"194861","smName":"Morarjee Textiles Limited",
+        "symbol":"MORARJEE","type":"Integrated Filing- Governance","type_Sub":"New",
+        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GOVERNANCE_1725646_19092026012428_WEB.xml",
+        "xbrlFileSize":"32.20 KB"
+    }]}"#;
+
+    #[test]
+    fn deserializes_real_governance_shape_with_null_audited_and_real_pdf_url() {
+        let parsed: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(SAMPLE_INTEGRATED_FILING_GOVERNANCE).unwrap();
+        let row = &parsed.data[0];
+
+        assert_eq!(row.audited, None);
+        assert_eq!(row.consolidated, None);
+        assert_eq!(
+            row.pdf_attachment_url,
+            Some(
+                "https://nsearchives.nseindia.com/corporate/HOVS_22092026134458_HGM-Clarification22Sept2026.pdf"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            row.revised_time,
+            Some(date(2026, 9, 23).and_hms_opt(18, 17, 8).unwrap())
+        );
+        assert_eq!(row.revision_remark, Some("Revised".to_string()));
+    }
+
+    // Real response captured live: a Governance-type row where
+    // `xbrlFileSize`/`ixbrlFileSize` are `null`, not the always-populated
+    // string a smaller sample suggested.
+    const SAMPLE_INTEGRATED_FILING_NULL_FILE_SIZES: &str = r#"{"data":[{
+        "attFileSize":null,"audited":null,"broadcast_Date":"04-Sep-2026 18:31:41",
+        "cmName":"Filatex Fashions Limited","consolidated":null,
+        "creation_Date":"04-Sep-2026 18:31:42",
+        "ixbrl":"https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_GOVERNANCE_192103_04092026183141_iXBRL_WEB.html",
+        "ixbrlFileSize":null,"pdf_attach":null,"qe_Date":"30-JUN-2026","revised_Date":null,
+        "revision_Remark":null,"seq_Id":"192103","smName":"Filatex Fashions Limited",
+        "symbol":"FILATFASH","type":"Integrated Filing- Governance","type_Sub":"New",
+        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GOVERNANCE_1721515_04092026063140_WEB.xml",
+        "xbrlFileSize":null
+    }]}"#;
+
+    #[test]
+    fn accepts_null_xbrl_and_ixbrl_file_sizes() {
+        let parsed: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(SAMPLE_INTEGRATED_FILING_NULL_FILE_SIZES).unwrap();
+        let row = &parsed.data[0];
+
+        assert_eq!(row.xbrl_file_size, None);
+        assert_eq!(row.ixbrl_file_size, None);
+        assert_eq!(row.pdf_attachment_url, None);
+    }
+
+    #[test]
+    fn integrated_filing_row_serializes_with_clean_field_names() {
+        let parsed: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(SAMPLE_INTEGRATED_FILING_FINANCIALS).unwrap();
+        let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
+        writer.serialize(&parsed.data[0]).unwrap();
+        let csv_text = String::from_utf8(writer.into_inner().unwrap()).unwrap();
+
+        let header = csv_text.lines().next().unwrap();
+        assert_eq!(
+            header,
+            "symbol,company_name,security_name,filing_type,filing_sub_type,period_ended,audited,consolidated,broadcast_time,creation_time,revised_time,revision_remark,xbrl_url,xbrl_file_size,ixbrl_url,ixbrl_file_size,pdf_attachment_url,pdf_attachment_file_size,sequence_id"
+        );
+    }
+
+    // Confirmed live: a missing/invalid `type` param returns this envelope
+    // instead of real rows - still parses cleanly to an empty `Vec` since
+    // `IntegratedFilingResponse` only requires `data`.
+    #[test]
+    fn missing_type_param_envelope_parses_to_empty_vec() {
+        let parsed: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(r#"{"data":[],"msg":"no data found"}"#).unwrap();
+        assert!(parsed.data.is_empty());
     }
 }

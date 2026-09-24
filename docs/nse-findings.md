@@ -1193,3 +1193,65 @@ on `CurrencyOptionLeg`, not just the one field that happened to trip in
 this sample - same defensive posture already used for
 `DerivativeQuoteRow`/`LiveFoRow`.
 
+## `corporate_integrated_filing`: real endpoint, several gaps vs Python's assumptions
+
+Implemented as `NseCorporateAnnouncements::corporate_integrated_filing_raw`/
+`_csv`, fetching SEBI's newer "Integrated Filing" framework from
+`/api/integrated-filing-results` - genuinely different from the older
+Regulation 33 filings `NseCorporateResults` covers.
+
+Confirmed live, both real `type` values share one response shape:
+`"Integrated Filing- Financials"` and `"Integrated Filing- Governance"`.
+`symbol` and `index` (segment, e.g. `sme`) both genuinely filter -
+confirmed via back-to-back totalCount comparisons in the same live
+session to rule out the dataset's own live growth as a confound.
+Python's `issuer` filter does **not** actually filter anything -
+confirmed with a control test: a garbage `issuer` value returns the
+exact identical `totalCount` as no filter at all. `period_ended` does
+genuinely filter too, but isn't exposed on this crate's API - not
+because it's broken, but to keep the method under clippy's
+argument-count lint; `from_date`/`to_date` already cover the general
+need.
+
+NSE doesn't require a date range here (unlike `corporate_announcements`),
+and `size=1000` works with no smaller cap found - but the unfiltered
+total is 26,000+ rows and growing live throughout the day, so this
+crate's API still requires `from_date`/`to_date` and auto-paginates
+internally at 1000 rows/page until a short page signals the end.
+
+Several fields turned out less reliable than a first small sample
+suggested - the same "verify against a large real response, not a
+hand-picked sample" lesson as the option-chain float bug above:
+
+- `pdf_attach` can be a genuine JSON `null`, a dead sentinel literally
+  ending in `/null` (no real PDF exists - confirmed the majority case,
+  674 of 1000 rows checked), or a real working URL (138/1000, e.g.
+  `.../HOVS_22092026134458_HGM-Clarification22Sept2026.pdf`). Both
+  "no attachment" cases are normalized to `None` rather than leaking
+  the dead sentinel as if it were a real link.
+- `attFileSize` looked like an always-`"0 Bytes"` dead field from an
+  initial 5-row sample - it's actually the real PDF's size (up to tens
+  of MB) and correlates with whether `pdf_attach` is real.
+- `cmName`/`smName` look like an exact duplicate pair (like several
+  other fields already dropped elsewhere in this module) but aren't:
+  they differ in casing on about 1% of rows checked (e.g. `"Ghcl
+  Textiles Limited"` vs `"GHCL Textiles Limited"`), so both are kept
+  as `company_name`/`security_name` rather than dropping one.
+- `xbrlFileSize`/`ixbrlFileSize` are `null` on a real fraction of
+  Governance-type rows (14 of 36 checked over one date window) - caught
+  by the live integration test, not the unit tests, since the samples
+  used to write the unit tests happened not to include an affected row.
+  Modeled as `Option<String>`, not the required `String` a smaller
+  sample suggested.
+- `audited`/`consolidated` are `null` for the Governance type
+  (not applicable to governance-only filings) but always populated
+  strings (`"Audited"`/`"Un-Audited"`, `"Standalone"`/`"Consolidated"`)
+  for the Financials type - kept as NSE's own text labels rather than
+  inverted into booleans, since they aren't `"true"`/`"false"` wire
+  values.
+
+Reuses `NseCorporateAnnouncements::download_attachment_raw`/`_save`
+(originally built for `corporate_announcements`'/`sse_announcements`'
+attachment URLs) for `xbrl_url`/`ixbrl_url`/`pdf_attachment_url` too -
+its third consumer, no new download method needed.
+

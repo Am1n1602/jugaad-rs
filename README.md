@@ -41,13 +41,14 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Live F&O contracts for a symbol (all expiries/strikes) | `NseQuote::derivative_quote_raw`/`derivative_quote_csv` |
 | Live single-index value, volume and turnover | `NseQuote::index_quote_raw`/`index_quote_csv` |
 | Stock intraday/historical price chart | `NseQuote::stock_chart_data_raw`/`stock_chart_data_csv` |
-| Index intraday/historical price chart | `NseQuote::index_chart_data_raw` |
+| Index intraday/historical price chart | `NseQuote::index_chart_data_raw`/`index_chart_data_csv` |
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
 | Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
 | Corporate announcements (equities/sme/debt/mf/invitsreits/municipalBond) | `NseCorporateAnnouncements::corporate_announcements_raw`/`corporate_announcements_csv` |
 | Social Stock Exchange announcements | `NseCorporateAnnouncements::sse_announcements_raw`/`sse_announcements_csv` |
-| Announcement attachments (PDF in every case seen) | `NseCorporateAnnouncements::download_attachment_raw`/`download_attachment_save` |
+| SEBI Integrated Filing entries (Financials/Governance) | `NseCorporateAnnouncements::corporate_integrated_filing_raw`/`corporate_integrated_filing_csv` |
+| Announcement/filing attachments (PDF/XBRL/iXBRL) | `NseCorporateAnnouncements::download_attachment_raw`/`download_attachment_save` |
 
 Bhavcopy and F&O bhavcopy both automatically pick the right format for the date requested - NSE changed both formats on 2024-07-08, and callers don't need to know or care which side of that date they're asking about.
 
@@ -62,7 +63,7 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 ## What this adds beyond jugaad-data
 
 **Data jugaad-data doesn't have at all:**
-- **Financial-results filings + XBRL/HTML download** (`NseCorporateResults`) - jugaad-data's `NSELive` wraps the newer SEBI Integrated Filing framework (`corporate_integrated_filing`), but not the older Regulation 33 filing type this crate covers, which is the only source for machine-readable financials before that framework existed (roughly FY2024-25). Company financials going back to FY2012-13 (for TCS; likely similar for other long-listed companies) aren't reachable through jugaad-data at all.
+- **Financial-results filings + XBRL/HTML download** (`NseCorporateResults`) - the older Regulation 33 filing type, which is the only source for machine-readable financials before the newer Integrated Filing framework existed (roughly FY2024-25). Company financials going back to FY2012-13 (for TCS; likely similar for other long-listed companies) aren't reachable through jugaad-data at all. This crate also implements the newer framework itself (`NseCorporateAnnouncements::corporate_integrated_filing_raw`, matching jugaad-data's `corporate_integrated_filing`), so it's not an either/or - both filing generations are covered here.
 
 **Data jugaad-data's own equivalent doesn't actually return:**
 - **Top gainers/losers** (`market_movers_raw`) - jugaad-data's `top_stocks()` calls NSE's `getTopTenStock`, confirmed live to only ever populate its `topGainers` field; every other field it claims to have (including `topLoosers`) came back empty across repeated checks with the market open. This crate implements the same feature against `live-analysis-variations` instead - the endpoint NSE's own live gainers/losers page actually calls - found by inspecting that page's network requests after `getTopTenStock` turned out to be half-dead.
@@ -79,11 +80,10 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 - A running, dated log of every undocumented NSE quirk found ([`docs/nse-findings.md`](docs/nse-findings.md)) - the endpoint migrations, date-format traps, and schema-per-segment differences above are all recorded there with how they were confirmed.
 - A single static binary (`cargo build --release`) as an alternative to the library - no interpreter or `pip install` needed to just download data.
 
-None of this makes jugaad-rs a strict superset yet - see Pending below for what jugaad-data still covers that this doesn't.
+One gap remains before this is a strict superset of jugaad-data - see Pending below.
 
 ## Pending
 
-- **The newer SEBI Integrated Filing framework** (`corporate_integrated_filing`) - the one thing jugaad-data's `NSELive` covers that this crate doesn't; this crate instead covers older Regulation 33 filings jugaad-data can't reach (see [What this adds beyond jugaad-data](#what-this-adds-beyond-jugaad-data) above).
 - **`pre_open_market`** - NSE's pre-open session data only exists during the actual pre-open window (roughly 9:00-9:15 IST each trading day); confirmed live outside that window that the endpoint works but has nothing to show (`{"data":[],"msg":"No Data Found"}`), so the real row shape is still unconfirmed. See [`docs/nse-findings.md`](docs/nse-findings.md#pre_open_market---shape-not-yet-confirmed-needs-the-actual-pre-open-window).
 
 ## Requirements
@@ -106,7 +106,7 @@ The CLI binary is `jugaad`, built at `target/release/jugaad`.
 cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 ```
 
-Run `jugaad --help` for the full, always-current command list (46 commands
+Run `jugaad --help` for the full, always-current command list (47 commands
 as of this writing - bhavcopy in three variants (including the
 whole-market index bhavcopy), stock/index/derivatives history, bulk
 deals, generic daily reports, index P/E/TRI/discovery, live market
@@ -114,7 +114,8 @@ status/index snapshot/turnover/F&O/block deals/F&O turnover
 leaderboards/market movers/most-active/volume-gainers/52-week-high-low/
 large-deals/holidays, live per-symbol quotes/charts/reg-details/meta/
 name/yearwise-data, index price charts, option chains, financial-results
-filings, and corporate announcements). A few representative examples:
+filings, corporate announcements, and SEBI Integrated Filing entries). A
+few representative examples:
 
 ```bash
 # Whole-market bhavcopy for one day

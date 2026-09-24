@@ -60,6 +60,7 @@ cargo run -p jugaad-cli -- <COMMAND> [OPTIONS]
 - [`symbol-name`](#symbol-name) - download the company name behind a symbol
 - [`yearwise-data`](#yearwise-data) - download a symbol's price change over several trailing windows
 - [`index-chart`](#index-chart) - download an index's intraday or historical price chart
+- [`corporate-integrated-filing`](#corporate-integrated-filing) - download SEBI Integrated Filing entries (Financials/Governance)
 
 ---
 
@@ -2098,6 +2099,72 @@ windows instead of omitting them, unlike the stock endpoint's `null`.
   live, this endpoint 404s rather than returning an empty result.
 - `timestamp` is already corrected to real IST wall-clock time, same fix
   and same root cause as `stock-chart`.
+
+---
+
+## `corporate-integrated-filing`
+
+Downloads SEBI's Integrated Filing entries - a newer combined financial/
+governance disclosure framework, distinct from the older Regulation 33
+filings `financial-results` covers - and saves them as a CSV, one row
+per filing.
+
+```bash
+jugaad corporate-integrated-filing [OPTIONS] --from <FROM> --to <TO>
+```
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--filing-type <FILING_TYPE>` | `Integrated Filing- Financials` | Filing type - the two confirmed real values are `Integrated Filing- Financials` and `Integrated Filing- Governance` |
+| `--symbol <SYMBOL>` | every symbol | Symbol to filter to, e.g. `SBIN` |
+| `--segment <SEGMENT>` | every segment | Segment to filter to, e.g. `equities` or `sme` |
+| `-f, --from <FROM>` | *(required)* | Start date (inclusive), e.g. `2026-01-01` |
+| `-t, --to <TO>` | *(required)* | End date (inclusive), e.g. `2026-09-24` |
+| `-o, --output <OUTPUT>` | `data/nse/corporate_integrated_filing` | Directory to save the CSV into |
+
+### Examples
+
+```bash
+jugaad corporate-integrated-filing --symbol SBIN --from 2026-01-01 --to 2026-09-24
+```
+
+```
+Saved integrated filing entries to data/nse/corporate_integrated_filing/SBIN-financials-integrated-filing-2026-01-01-2026-09-24.csv
+```
+
+```bash
+jugaad corporate-integrated-filing --filing-type "Integrated Filing- Governance" --from 2026-09-01 --to 2026-09-24
+```
+
+### CSV columns
+
+`symbol, company_name, security_name, filing_type, filing_sub_type, period_ended, audited, consolidated, broadcast_time, creation_time, revised_time, revision_remark, xbrl_url, xbrl_file_size, ixbrl_url, ixbrl_file_size, pdf_attachment_url, pdf_attachment_file_size, sequence_id`
+
+`company_name`/`security_name` look like duplicates but aren't always
+identical - they differ in casing on about 1% of rows checked (e.g.
+`"Ghcl Textiles Limited"` vs `"GHCL Textiles Limited"`). `audited`/
+`consolidated` are blank for the Governance filing type (not applicable
+to governance-only filings). `pdf_attachment_url` is blank both when
+NSE genuinely has no PDF and when it sends a dead placeholder link -
+both cases are normalized the same way rather than exposing a URL that
+doesn't actually resolve to anything.
+
+### Notes
+
+- NSE doesn't actually require a date range for this endpoint (unlike
+  `corporate-announcements`), but this command still requires one to
+  keep results bounded - the unfiltered total is 26,000+ rows and
+  growing live throughout the day. Internally paginates at 1000 rows
+  per request until exhausted, so you still get one complete CSV
+  regardless of how many requests that took.
+- Python jugaad-data's `issuer` filter is not exposed here - confirmed
+  live to have no effect at all. See
+  [nse-findings.md](nse-findings.md#corporate_integrated_filing-real-endpoint-several-gaps-vs-pythons-assumptions).
+- Also downloadable via `download-announcement-attachment`: pass any of
+  a row's `xbrl_url`, `ixbrl_url`, or `pdf_attachment_url` columns to
+  fetch the actual filing document.
 
 ---
 

@@ -615,6 +615,30 @@ enum Command {
         #[arg(short, long, default_value = "data/nse/index_chart")]
         output: PathBuf,
     },
+    /// Download SEBI Integrated Filing entries (the newer combined
+    /// financial/governance disclosure framework)
+    CorporateIntegratedFiling {
+        /// Filing type, e.g. "Integrated Filing- Financials" or
+        /// "Integrated Filing- Governance"
+        #[arg(long, default_value = "Integrated Filing- Financials")]
+        filing_type: String,
+        /// Symbol to filter to, e.g. SBIN - omit for every symbol
+        #[arg(long)]
+        symbol: Option<String>,
+        /// Segment to filter to, e.g. equities or sme - omit for every
+        /// segment
+        #[arg(long)]
+        segment: Option<String>,
+        /// Start date (inclusive), e.g. 2026-01-01
+        #[arg(short, long)]
+        from: NaiveDate,
+        /// End date (inclusive), e.g. 2026-09-24
+        #[arg(short, long)]
+        to: NaiveDate,
+        /// Directory to save the CSV into
+        #[arg(short, long, default_value = "data/nse/corporate_integrated_filing")]
+        output: PathBuf,
+    },
 }
 
 // clap's derive macro generates recursive command-matching code sized to
@@ -1049,6 +1073,28 @@ async fn run() -> anyhow::Result<()> {
                 .index_chart_data_csv(&name, period.into(), &output)
                 .await?;
             println!("Saved index chart data to {}", path.display());
+        }
+        Command::CorporateIntegratedFiling {
+            filing_type,
+            symbol,
+            segment,
+            from,
+            to,
+            output,
+        } => {
+            std::fs::create_dir_all(&output)?;
+            let client = NseCorporateAnnouncements::new()?;
+            let path = client
+                .corporate_integrated_filing_csv(
+                    &filing_type,
+                    symbol.as_deref(),
+                    segment.as_deref(),
+                    from,
+                    to,
+                    &output,
+                )
+                .await?;
+            println!("Saved integrated filing entries to {}", path.display());
         }
     }
     Ok(())

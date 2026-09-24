@@ -730,6 +730,47 @@ async fn sse_announcements_raw_fetches_social_enterprise_disclosures() {
 
 #[tokio::test]
 #[ignore = "hits live NSE"]
+async fn corporate_integrated_filing_raw_fetches_sbin_financials() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .corporate_integrated_filing_raw(
+            "Integrated Filing- Financials",
+            Some("SBIN"),
+            None,
+            date(2026, 1, 1),
+            date(2026, 9, 24),
+        )
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r.symbol.as_deref() == Some("SBIN")));
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
+async fn corporate_integrated_filing_raw_governance_type_has_no_audited_or_consolidated() {
+    let client = NseCorporateAnnouncements::new().unwrap();
+    let rows = client
+        .corporate_integrated_filing_raw(
+            "Integrated Filing- Governance",
+            None,
+            None,
+            date(2026, 9, 1),
+            date(2026, 9, 24),
+        )
+        .await
+        .unwrap();
+
+    assert!(!rows.is_empty());
+    assert!(
+        rows.iter()
+            .all(|r| r.audited.is_none() && r.consolidated.is_none())
+    );
+}
+
+#[tokio::test]
+#[ignore = "hits live NSE"]
 async fn download_attachment_raw_fetches_a_real_pdf() {
     let client = NseCorporateAnnouncements::new().unwrap();
     let rows = client
