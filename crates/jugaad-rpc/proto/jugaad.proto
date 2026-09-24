@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package jugaad;
+
+// Exposes jugaad-core over gRPC, for frontends written in languages other
+// than Rust. Starts with one symbol's live quote (unary + streamed) as
+// the first working slice - more of jugaad-core's surface gets added the
+// same way once this round-trips end to end.
+service Jugaad {
+  // Fetches a stock's live quote once.
+  rpc GetStockQuote(StockQuoteRequest) returns (StockQuote);
+
+  // Streams a stock's live quote, re-fetching every `interval_seconds`
+  // (default 3 if unset) until the client disconnects.
+  rpc WatchStockQuote(WatchStockQuoteRequest) returns (stream StockQuote);
+}
+
+message StockQuoteRequest {
+  string symbol = 1;
+}
+
+message WatchStockQuoteRequest {
+  string symbol = 1;
+  uint32 interval_seconds = 2;
+}
+
+message OrderBookLevel {
+  double buy_price = 1;
+  uint64 buy_quantity = 2;
+  double sell_price = 3;
+  uint64 sell_quantity = 4;
+}
+
+message OrderBook {
+  // Always exactly 5 entries, best price first.
+  repeated OrderBookLevel levels = 1;
+  uint64 total_buy_quantity = 2;
+  uint64 total_sell_quantity = 3;
+}
+
+message StockQuote {
+  string symbol = 1;
+  string company_name = 2;
+  string series = 3;
+  double open = 4;
+  double day_high = 5;
+  double day_low = 6;
+  double previous_close = 7;
+  double last_price = 8;
+  double change = 9;
+  double percent_change = 10;
+  double year_high = 11;
+  double year_low = 12;
+  uint64 total_traded_volume = 13;
+  double total_traded_value = 14;
+  optional double total_market_cap = 15;
+  double face_value = 16;
+  optional uint64 delivery_quantity = 17;
+  optional double delivery_pct = 18;
+  OrderBook order_book = 19;
+  string last_update_time = 20;
+}
