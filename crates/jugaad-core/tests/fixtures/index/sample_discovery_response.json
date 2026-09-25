@@ -1,0 +1,38 @@
+[
+  {
+    "category": null,
+    "title": null,
+    "documentname": null,
+    "downloadUrl": null,
+    "dateofindex": null,
+    "formatdate": null,
+    "TitleName": null,
+    "indextype": "Equity",
+    "indexgroup": null,
+    "Date": null
+  },
+  {
+    "category": null,
+    "title": null,
+    "documentname": null,
+    "downloadUrl": null,
+    "dateofindex": null,
+    "formatdate": null,
+    "TitleName": null,
+    "indextype": null,
+    "indexgroup": null,
+    "Date": null
+  },
+  {
+    "category": null,
+    "title": null,
+    "documentname": null,
+    "downloadUrl": null,
+    "dateofindex": null,
+    "formatdate": null,
+    "TitleName": null,
+    "indextype": "Fixed Income",
+    "indexgroup": null,
+    "Date": null
+  }
+]

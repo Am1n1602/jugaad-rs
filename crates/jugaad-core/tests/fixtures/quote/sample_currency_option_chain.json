@@ -1,0 +1,50 @@
+{
+  "records": {
+    "data": [
+      {
+        "strikePrice": 84.75,
+        "expiryDate": "28-Sep-2026",
+        "PE": {
+          "strikePrice": 84.75,
+          "underlying": "USDINR",
+          "identifier": "OPTCURUSDINR28-09-2026PE84.7500",
+          "openInterest": 0,
+          "changeinOpenInterest": 0,
+          "pchangeinOpenInterest": 0,
+          "totalTradedVolume": 0,
+          "impliedVolatility": 0,
+          "lastPrice": 0,
+          "change": 0,
+          "pChange": 0,
+          "totalBuyQuantity": 0,
+          "totalSellQuantity": 0,
+          "bidQty": 0,
+          "bidprice": 0,
+          "askQty": 0,
+          "askPrice": 0,
+          "underlyingValue": 95.791
+        },
+        "CE": {
+          "strikePrice": 84.75,
+          "underlying": "USDINR",
+          "identifier": "OPTCURUSDINR28-09-2026CE84.7500",
+          "openInterest": 0,
+          "changeinOpenInterest": 0,
+          "pchangeinOpenInterest": 0,
+          "totalTradedVolume": 0,
+          "impliedVolatility": 0,
+          "lastPrice": 0,
+          "change": 0,
+          "pChange": 0,
+          "totalBuyQuantity": 0,
+          "totalSellQuantity": 0,
+          "bidQty": 0,
+          "bidprice": 0,
+          "askQty": 0,
+          "askPrice": 0,
+          "underlyingValue": 95.791
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "data": [
+    {
+      "CH_SYMBOL": "SBIN",
+      "CH_SERIES": "T0",
+      "mTIMESTAMP": "19-Aug-2024",
+      "CH_PREVIOUS_CLS_PRICE": 812.1,
+      "CH_OPENING_PRICE": 820,
+      "CH_TRADE_HIGH_PRICE": 820,
+      "CH_TRADE_LOW_PRICE": 820,
+      "CH_LAST_TRADED_PRICE": 820,
+      "CH_CLOSING_PRICE": 813.7,
+      "VWAP": 820,
+      "CH_TOT_TRADED_QTY": 1,
+      "CH_TOT_TRADED_VAL": 820,
+      "CH_TOTAL_TRADES": 1,
+      "CH_TIMESTAMP": "2024-08-18T18:30:00.000Z",
+      "COP_DELIV_QTY": 1,
+      "COP_DELIV_PERC": 100
+    },
+    {
+      "CH_SYMBOL": "SBIN",
+      "CH_SERIES": "EQ",
+      "mTIMESTAMP": "19-Aug-2024",
+      "CH_PREVIOUS_CLS_PRICE": 812.1,
+      "CH_OPENING_PRICE": 815,
+      "CH_TRADE_HIGH_PRICE": 825.4,
+      "CH_TRADE_LOW_PRICE": 812.6,
+      "CH_LAST_TRADED_PRICE": 814.6,
+      "CH_CLOSING_PRICE": 813.7,
+      "VWAP": 817.66,
+      "CH_TOT_TRADED_QTY": 10151482,
+      "CH_TOT_TRADED_VAL": 8300440391.9,
+      "CH_TOTAL_TRADES": 174502,
+      "CH_TIMESTAMP": "2024-08-18T18:30:00.000Z",
+      "COP_DELIV_QTY": 2595511,
+      "COP_DELIV_PERC": 25.57
+    }
+  ]
+}

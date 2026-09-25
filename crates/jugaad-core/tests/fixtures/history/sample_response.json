@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "CH_SYMBOL": "SBIN",
+      "CH_SERIES": "EQ",
+      "mTIMESTAMP": "05-Aug-2024",
+      "CH_PREVIOUS_CLS_PRICE": 847.85,
+      "CH_OPENING_PRICE": 830,
+      "CH_TRADE_HIGH_PRICE": 831.35,
+      "CH_TRADE_LOW_PRICE": 800,
+      "CH_LAST_TRADED_PRICE": 810,
+      "CH_CLOSING_PRICE": 811.65,
+      "VWAP": 815.37,
+      "CH_TOT_TRADED_QTY": 27676951,
+      "CH_TOT_TRADED_VAL": 22567000834,
+      "CH_TOTAL_TRADES": 539085,
+      "CH_TIMESTAMP": "2024-08-04T18:30:00.000Z",
+      "COP_DELIV_QTY": 12248505,
+      "COP_DELIV_PERC": 44.26
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "key": "INDICES ELIGIBLE IN DERIVATIVES",
+      "index": "NIFTY 50",
+      "indexSymbol": "NIFTY 50",
+      "last": 23346.4,
+      "variation": 75.8,
+      "percentChange": 0.33,
+      "open": 23334.7,
+      "high": 23389.15,
+      "low": 23286.6,
+      "previousClose": 23270.6,
+      "yearHigh": 26373.2,
+      "yearLow": 22182.55,
+      "indicativeClose": 0,
+      "pe": "19.74",
+      "pb": "2.82",
+      "dy": "1.21",
+      "declines": "24",
+      "advances": "26",
+      "unchanged": "0"
+    }
+  ]
+}

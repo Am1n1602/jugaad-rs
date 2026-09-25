@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "attFileSize": null,
+      "audited": null,
+      "broadcast_Date": "04-Sep-2026 18:31:41",
+      "cmName": "Filatex Fashions Limited",
+      "consolidated": null,
+      "creation_Date": "04-Sep-2026 18:31:42",
+      "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_GOVERNANCE_192103_04092026183141_iXBRL_WEB.html",
+      "ixbrlFileSize": null,
+      "pdf_attach": null,
+      "qe_Date": "30-JUN-2026",
+      "revised_Date": null,
+      "revision_Remark": null,
+      "seq_Id": "192103",
+      "smName": "Filatex Fashions Limited",
+      "symbol": "FILATFASH",
+      "type": "Integrated Filing- Governance",
+      "type_Sub": "New",
+      "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GOVERNANCE_1721515_04092026063140_WEB.xml",
+      "xbrlFileSize": null
+    }
+  ]
+}

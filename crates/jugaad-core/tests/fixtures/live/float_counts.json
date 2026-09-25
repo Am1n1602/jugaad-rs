@@ -1,0 +1,26 @@
+{
+  "value": [
+    {
+      "underlying": "NIFTY",
+      "identifier": "X",
+      "instrumentType": "OPTIDX",
+      "instrument": "Index Options",
+      "expiryDate": "22-Sep-2026",
+      "optionType": "Call",
+      "strikePrice": 23300,
+      "lastPrice": 0,
+      "pChange": 0,
+      "openPrice": 0,
+      "highPrice": 0,
+      "lowPrice": 0,
+      "numberOfContractsTraded": 5628311,
+      "totalTurnover": 0,
+      "premiumTurnover": 0,
+      "openInterest": 114149,
+      "underlyingValue": 0
+    }
+  ],
+  "val_timestamp": "",
+  "volume": [],
+  "vol_timestamp": ""
+}

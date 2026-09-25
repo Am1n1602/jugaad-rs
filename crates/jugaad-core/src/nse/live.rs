@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
+use super::http::{HttpClient, client_builder, with_retry};
 use super::quote::{NEXTAPI_URL, deserialize_lenient_u64};
 use crate::error::{Error, Result};
 
@@ -1029,13 +1029,15 @@ impl RawHoliday {
 
 #[derive(Debug, Clone)]
 pub struct NseLiveMarket {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseLiveMarket {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     /// Fetches whether each market segment (Capital Market, Currency,
@@ -1533,7 +1535,7 @@ pub(super) fn write_csv<T: Serialize>(rows: &[T], path: &Path) -> Result<PathBuf
 /// by URL (XBRL/HTML filings in `corporate_results.rs`, PDF attachments
 /// in `corporate_announcements.rs`): downloads whatever bytes are at
 /// `url`, unchanged - the caller decides what format to expect.
-pub(super) async fn download_bytes(client: &Client, url: &str) -> Result<Vec<u8>> {
+pub(super) async fn download_bytes(client: &HttpClient, url: &str) -> Result<Vec<u8>> {
     let response = client.get(url).send().await?;
 
     match response.status() {
@@ -1569,18 +1571,8 @@ mod tests {
     // the marketState array, which is all this module models. Includes both
     // "variation" (Capital Market) and "change" (NIFTY50 USD) key names,
     // and both an open and a closed segment.
-    const SAMPLE_MARKET_STATUS: &str = r#"{"marketState":[
-        {"market":"Capital Market","marketStatus":"Closed","tradeDate":"18-Sep-2026 15:30",
-         "index":"NIFTY 50","last":23346.4,"variation":75.80000000000291,"percentChange":0.33,
-         "marketStatusMessage":"Normal Market has Closed"},
-        {"market":"Commodity","marketStatus":"Open","tradeDate":"18-Sep-2026",
-         "index":"","last":"","variation":"","percentChange":"","marketStatusMessage":"Market is Open"},
-        {"index":"NIFTY50 USD","last":8435.8,"change":31.090000000000146,"percentChange":0.37,
-         "timestamp":"18-Sep-2026 15:39"},
-        {"market":"currencyfuture","marketStatus":"Closed","tradeDate":"18-Sep-2026",
-         "index":"","last":"95.9600","variation":"","percentChange":"","marketStatusMessage":"Market is Closed",
-         "expiryDate":"28-Sep-2026","underlying":"USDINR"}
-    ]}"#;
+    const SAMPLE_MARKET_STATUS: &str =
+        include_str!("../../tests/fixtures/live/sample_market_status.json");
 
     #[test]
     fn market_status_keeps_only_entries_that_name_a_market() {
@@ -1629,13 +1621,8 @@ mod tests {
     }
 
     // Real response captured from NSE's allIndices API for NIFTY 50.
-    const SAMPLE_INDEX_SNAPSHOT: &str = r#"{"data":[
-        {"key":"INDICES ELIGIBLE IN DERIVATIVES","index":"NIFTY 50","indexSymbol":"NIFTY 50",
-         "last":23346.4,"variation":75.8,"percentChange":0.33,"open":23334.7,"high":23389.15,
-         "low":23286.6,"previousClose":23270.6,"yearHigh":26373.2,"yearLow":22182.55,
-         "indicativeClose":0,"pe":"19.74","pb":"2.82","dy":"1.21","declines":"24","advances":"26",
-         "unchanged":"0"}
-    ]}"#;
+    const SAMPLE_INDEX_SNAPSHOT: &str =
+        include_str!("../../tests/fixtures/live/sample_index_snapshot.json");
 
     #[test]
     fn deserializes_real_index_snapshot_shape() {
@@ -1651,11 +1638,8 @@ mod tests {
     // Real response captured for NIFTY50 USD - a strategy index with no
     // meaningful P/E/P/B/dividend yield and no derivatives (so no
     // advances/declines/unchanged at all).
-    const SAMPLE_INDEX_SNAPSHOT_NO_PE_NO_BREADTH: &str = r#"{"data":[
-        {"key":"STRATEGY INDICES","index":"NIFTY50 USD","indexSymbol":"NIFTY50 USD","last":8435.8,
-         "variation":31.09,"percentChange":0.37,"open":8404.7,"high":8483.2,"low":8404.05,
-         "previousClose":8404.71,"yearHigh":0,"yearLow":0,"indicativeClose":0,"pe":"","pb":"","dy":""}
-    ]}"#;
+    const SAMPLE_INDEX_SNAPSHOT_NO_PE_NO_BREADTH: &str =
+        include_str!("../../tests/fixtures/live/sample_index_snapshot_no_pe_no_breadth.json");
 
     #[test]
     fn index_snapshot_treats_empty_pe_as_none_and_missing_breadth_as_none() {
@@ -1687,10 +1671,8 @@ mod tests {
 
     // Real response captured from NSE's market-turnover API, trimmed to two
     // segments - one normal, one with a null name (a real NSE data quirk).
-    const SAMPLE_MARKET_TURNOVER: &str = r#"{"data":[
-        {"name":"Equities","yesterday":{"volume":3528797247,"value":1107796241968.77,"openInterest":0},"today":{}},
-        {"name":null,"yesterday":{"volume":0,"value":3688914932.47,"openInterest":0},"today":{}}
-    ]}"#;
+    const SAMPLE_MARKET_TURNOVER: &str =
+        include_str!("../../tests/fixtures/live/sample_market_turnover.json");
 
     #[test]
     fn deserializes_real_market_turnover_shape() {
@@ -1709,15 +1691,7 @@ mod tests {
 
     // Real response captured from NSE's liveEquity-derivatives API for
     // index=nse50_fut.
-    const SAMPLE_LIVE_FO: &str = r#"{"data":[
-        {"underlying":"NIFTY","identifier":"FUTIDXNIFTY29-09-2026XX0.00","instrumentType":"FUTIDX",
-         "instrument":"Index Futures","contract":"NIFTY 29-Sep-2026","expiryDate":"29-Sep-2026",
-         "optionType":"-","strikePrice":0,"lastPrice":23380,"change":46.6,"pChange":0.2,
-         "openPrice":23379,"highPrice":23420,"lowPrice":23312.6,"closePrice":23378.5,
-         "volume":1508520,"totalTurnover":35250627718.8,"value":35250627718.8,
-         "premiumTurnOver":35250627718.8,"underlyingValue":23346.4,"openInterest":268025,
-         "noOfTrades":23208}
-    ]}"#;
+    const SAMPLE_LIVE_FO: &str = include_str!("../../tests/fixtures/live/sample_live_fo.json");
 
     #[test]
     fn deserializes_real_live_fo_shape() {
@@ -1748,18 +1722,8 @@ mod tests {
     // Real response captured from NSE's NextApi getBlockDealSession -
     // session1 empty (confirmed live: this window hadn't happened yet
     // that day), session2 with two deals.
-    const SAMPLE_BLOCK_DEAL_SESSION: &str = r#"{"data":{"session1":[],"session2":[
-        {"identifier":"ENTEROBLO","symbol":"ENTERO","series":"BL","marketType":"O","change":28.4,
-         "lastPrice":1695,"totalTradedVolume":1390000,"status":null,"open":1695,"dayHigh":1695,
-         "dayLow":1695,"previousClose":1666.6,"averagePrice":1695,"totalBuyQuantity":0,
-         "totalSellQuantity":0,"onlineIndex":0,"lastUpdateTime":"18-Sep-2026 14:06:38",
-         "totalTradedValue":2356050000,"exDate":null,"purpose":null,"PChange":1.7,"pChange":1.7},
-        {"identifier":"TMCVBLO","symbol":"TMCV","series":"BL","marketType":"O","change":1.9,
-         "lastPrice":438,"totalTradedVolume":706512,"status":null,"open":438,"dayHigh":438,
-         "dayLow":438,"previousClose":436.1,"averagePrice":438,"totalBuyQuantity":0,
-         "totalSellQuantity":0,"onlineIndex":0,"lastUpdateTime":"18-Sep-2026 14:06:53",
-         "totalTradedValue":309452256,"exDate":null,"purpose":null,"PChange":0.44,"pChange":0.44}
-    ]}}"#;
+    const SAMPLE_BLOCK_DEAL_SESSION: &str =
+        include_str!("../../tests/fixtures/live/sample_block_deal_session.json");
 
     #[test]
     fn deserializes_real_block_deal_session_shape() {
@@ -1824,19 +1788,8 @@ mod tests {
     // Real response captured from NSE's equity-stock API
     // (index=allcontracts), trimmed to one row per leaderboard. Note
     // "Call"/"Put" (not "CE"/"PE") for option_type.
-    const SAMPLE_EQ_DERIVATIVE_TURNOVER: &str = r#"{"value":[
-        {"underlying":"NIFTY","identifier":"OPTIDXNIFTY22-09-2026CE23300.00","instrumentType":"OPTIDX",
-         "instrument":"Index Options","expiryDate":"22-Sep-2026","optionType":"Call","strikePrice":23300,
-         "lastPrice":117.5,"pChange":-2.5300705101617584,"openPrice":127.2,"highPrice":149,"lowPrice":99.15,
-         "numberOfContractsTraded":5628311,"totalTurnover":438496.08169900003,
-         "premiumTurnover":8567926617669.9,"openInterest":114149,"underlyingValue":23346.4}
-    ],"val_timestamp":"18-Sep-2026 15:40:00","volume":[
-        {"underlying":"HDFCBANK","identifier":"FUTSTKHDFCBANK29-09-2026XX0.00","instrumentType":"FUTSTK",
-         "instrument":"Stock Futures","expiryDate":"29-Sep-2026","optionType":"-","strikePrice":0,
-         "lastPrice":731.45,"pChange":2.2220669415135212,"openPrice":717.5,"highPrice":734.9,"lowPrice":716.7,
-         "numberOfContractsTraded":56174,"totalTurnover":266279.08437,"premiumTurnover":26627908437,
-         "openInterest":517811,"underlyingValue":731}
-    ],"vol_timestamp":"18-Sep-2026 15:40:00"}"#;
+    const SAMPLE_EQ_DERIVATIVE_TURNOVER: &str =
+        include_str!("../../tests/fixtures/live/sample_eq_derivative_turnover.json");
 
     #[test]
     fn deserializes_real_eq_derivative_turnover_shape() {
@@ -1873,12 +1826,7 @@ mod tests {
     // DerivativeQuoteRow in quote.rs.
     #[test]
     fn eq_derivative_turnover_accepts_float_formatted_counts() {
-        const FLOAT_COUNTS: &str = r#"{"value":[
-            {"underlying":"NIFTY","identifier":"X","instrumentType":"OPTIDX","instrument":"Index Options",
-             "expiryDate":"22-Sep-2026","optionType":"Call","strikePrice":23300,"lastPrice":0,"pChange":0,
-             "openPrice":0,"highPrice":0,"lowPrice":0,"numberOfContractsTraded":5628311.0,
-             "totalTurnover":0,"premiumTurnover":0,"openInterest":114149.0,"underlyingValue":0}
-        ],"val_timestamp":"","volume":[],"vol_timestamp":""}"#;
+        const FLOAT_COUNTS: &str = include_str!("../../tests/fixtures/live/float_counts.json");
         let parsed: EqDerivativeTurnoverResponse = serde_json::from_str(FLOAT_COUNTS).unwrap();
 
         assert_eq!(parsed.value[0].contracts_traded, 5_628_311);
@@ -1907,21 +1855,8 @@ mod tests {
     // seven buckets and one row each. `NIFTYNEXT50`/`SecGtr20`/`SecLwr20`/
     // `FOSec`/`allSec` are structurally identical to `NIFTY`/`BANKNIFTY`
     // shown here.
-    const SAMPLE_MARKET_MOVERS: &str = r#"{"legends":[["NIFTY","NIFTY 50"]],
-        "NIFTY":{"data":[
-            {"symbol":"HDFCLIFE","series":"EQ","open_price":551.65,"high_price":565.9,
-             "low_price":551.65,"ltp":562,"prev_price":550.95,"net_price":2.01,
-             "trade_quantity":1822012,"turnover":10247.7242928,"market_type":"N",
-             "ca_ex_dt":"19-Jun-2026","ca_purpose":"Dividend - Rs 2.10 Per Share","perChange":2.01}
-        ],"timestamp":"21-Sep-2026 13:48:09"},
-        "BANKNIFTY":{"data":[
-            {"symbol":"SBIN","series":"EQ","open_price":992,"high_price":996.2,
-             "low_price":985.1,"ltp":991.4,"prev_price":988.7,"net_price":2.7,
-             "trade_quantity":5699456,"turnover":5653.23341184,"market_type":"N",
-             "ca_ex_dt":"-","ca_purpose":"-","perChange":0.27}
-        ],"timestamp":"21-Sep-2026 13:48:09"},
-        "NIFTYNEXT50":{"data":[]},"SecGtr20":{"data":[]},"SecLwr20":{"data":[]},
-        "FOSec":{"data":[]},"allSec":{"data":[]}}"#;
+    const SAMPLE_MARKET_MOVERS: &str =
+        include_str!("../../tests/fixtures/live/sample_market_movers.json");
 
     #[test]
     fn deserializes_real_market_movers_shape() {
@@ -1960,12 +1895,7 @@ mod tests {
     // both fields are kept rather than treated as a duplicate.
     #[test]
     fn market_mover_change_and_percent_change_are_not_always_equal() {
-        const DIVERGENT: &str = r#"{"data":[
-            {"symbol":"BAJAJHLDNG","series":"EQ","open_price":160,"high_price":161,
-             "low_price":159,"ltp":161,"prev_price":159.46,"net_price":1.54,
-             "trade_quantity":100,"turnover":16.1,"market_type":"N",
-             "ca_ex_dt":"-","ca_purpose":"-","perChange":0.96}
-        ]}"#;
+        const DIVERGENT: &str = include_str!("../../tests/fixtures/live/divergent.json");
         let bucket: MoverBucket = serde_json::from_str(DIVERGENT).unwrap();
         let row = bucket
             .data
@@ -1980,11 +1910,8 @@ mod tests {
 
     // Real response shape captured live from
     // `live-analysis-most-active-securities?index=value`.
-    const SAMPLE_MOST_ACTIVE: &str = r#"{"data": [{"symbol": "SSRETAIL", "identifier": "SSRETAILEQN",
-        "lastPrice": 715.45, "pChange": 14.66, "quantityTraded": 35635246, "totalTradedVolume": 39901081,
-        "totalTradedValue": 26413318589.57, "previousClose": 424, "exDate": "-", "purpose": null,
-        "yearHigh": 723.95, "yearLow": 603.05, "change": 91.45, "open": 624, "closePrice": 0,
-        "dayHigh": 723.95, "dayLow": 603.05, "lastUpdateTime": "2026-09-23 13:33:47"}]}"#;
+    const SAMPLE_MOST_ACTIVE: &str =
+        include_str!("../../tests/fixtures/live/sample_most_active.json");
 
     #[test]
     fn deserializes_real_most_active_equity_shape() {
@@ -1998,10 +1925,8 @@ mod tests {
     }
 
     // Real response shape captured live from `live-analysis-volume-gainers`.
-    const SAMPLE_VOLUME_GAINER: &str = r#"{"data": [{"symbol": "LOYALTEX",
-        "companyName": "Loyal Textile Mills Limited", "volume": 43719, "week1AvgVolume": 138,
-        "week1volChange": 315.6606498194946, "week2AvgVolume": 386, "week2volChange": 113.17369919751488,
-        "ltp": 240, "pChange": 11.65, "turnover": 107.36949}]}"#;
+    const SAMPLE_VOLUME_GAINER: &str =
+        include_str!("../../tests/fixtures/live/sample_volume_gainer.json");
 
     #[test]
     fn deserializes_real_volume_gainer_shape() {
@@ -2016,10 +1941,7 @@ mod tests {
     // Real response shape captured live from
     // `live-analysis-data-52weekhighstock` - note "comapnyName" (NSE's own
     // typo) and `prevClose` sent as a string unlike its numeric siblings.
-    const SAMPLE_52W_HIGH: &str = r#"{"data": [{"change": 58.65,
-        "comapnyName": "Aarti Pharmalabs Limited", "ltp": 942.4, "new52WHL": 957.3,
-        "pChange": 6.636492220650637, "prev52WHL": 932.6, "prevClose": "883.75",
-        "prevHLDate": "11-Aug-2026", "series": "EQ", "symbol": "AARTIPHARM"}], "high": 1}"#;
+    const SAMPLE_52W_HIGH: &str = include_str!("../../tests/fixtures/live/sample_52w_high.json");
 
     #[test]
     fn deserializes_real_52_week_high_shape() {
@@ -2038,10 +1960,8 @@ mod tests {
     // string "-" instead of a date, alongside a `prev52WHL` of exactly 0.
     // This exact response broke deserialization the first time this was
     // tested live (the field was originally modeled as a required date).
-    const SAMPLE_52W_NEWLY_LISTED: &str = r#"{"data": [{"change": 16.4,
-        "comapnyName": "Hero Motors Limited", "ltp": 98.4, "new52WHL": 80.5,
-        "pChange": 20, "prev52WHL": 0, "prevClose": "84", "prevHLDate": "-",
-        "series": "EQ", "symbol": "HEROMOTORS"}]}"#;
+    const SAMPLE_52W_NEWLY_LISTED: &str =
+        include_str!("../../tests/fixtures/live/sample_52w_newly_listed.json");
 
     #[test]
     fn fifty_two_week_treats_dash_previous_date_as_none() {
@@ -2052,21 +1972,49 @@ mod tests {
         assert_eq!(row.previous_52_week_value, 0.0);
     }
 
+    // Full real 52-week high/low responses, captured live specifically
+    // because the small hand-picked samples above only demonstrate the
+    // "-" placeholder date bug on one row each. Deserializing every row
+    // in both full responses is the actual regression guard - it also
+    // covers whatever real variability the two single-row samples don't
+    // happen to contain.
+    const LARGE_52W_HIGH: &str = include_str!("../../tests/fixtures/live/large_52w_high.json");
+    const LARGE_52W_LOW: &str = include_str!("../../tests/fixtures/live/large_52w_low.json");
+
+    #[test]
+    fn deserializes_full_real_52_week_high_and_low_responses() {
+        let high: FiftyTwoWeekResponse = serde_json::from_str(LARGE_52W_HIGH).unwrap();
+        let low: FiftyTwoWeekResponse = serde_json::from_str(LARGE_52W_LOW).unwrap();
+
+        assert_eq!(high.data.len(), 93);
+        assert_eq!(low.data.len(), 97);
+
+        // Both full responses are known (confirmed at fixture-capture time)
+        // to contain rows with the "-" placeholder date - the exact
+        // real-world condition `fifty_two_week_treats_dash_previous_date_as_none`
+        // guards against on a single row, now checked across the whole set.
+        let high_dashes = high
+            .data
+            .into_iter()
+            .map(|r| r.into_row("high"))
+            .filter(|r| r.previous_52_week_date.is_none())
+            .count();
+        let low_dashes = low
+            .data
+            .into_iter()
+            .map(|r| r.into_row("low"))
+            .filter(|r| r.previous_52_week_date.is_none())
+            .count();
+        assert_eq!(high_dashes, 3);
+        assert_eq!(low_dashes, 3);
+    }
+
     // Real response shape captured live from
     // `snapshot-capital-market-largedeal` - one row from each of the three
     // lists, including a short deal (buySell/clientName/remarks/watp all
     // null - confirmed live to always be null for short deals).
-    const SAMPLE_LARGE_DEAL: &str = r#"{
-        "BULK_DEALS_DATA": [{"buySell": "SELL", "clientName": "SATISH MEJIYATAR", "date": "22-Sep-2026",
-            "name": "Kshitij Polyline Limited", "qty": "2277241", "remarks": "-", "symbol": "KSHITIJPOL",
-            "watp": "4.62"}],
-        "SHORT_DEALS_DATA": [{"buySell": null, "clientName": null, "date": "22-Sep-2026",
-            "name": "63 MOONS TECHNOLOGIES LTD", "qty": "5", "remarks": null, "symbol": "63MOONS",
-            "watp": null}],
-        "BLOCK_DEALS_DATA": [{"buySell": "BUY", "clientName": "BANDHAN MUTUAL FUND", "date": "22-Sep-2026",
-            "name": "RHI MAGNESITA INDIA LTD", "qty": "2777777", "remarks": null, "symbol": "RHIM",
-            "watp": "360"}]
-    }"#;
+    const SAMPLE_LARGE_DEAL: &str =
+        include_str!("../../tests/fixtures/live/sample_large_deal.json");
 
     #[test]
     fn deserializes_real_large_deal_shape_and_flattens_all_three_lists() {
@@ -2102,12 +2050,7 @@ mod tests {
     // Real response shape captured live from `holiday-master?type=trading` -
     // trimmed to two segments, one holiday each (one with real session
     // values, one with the more common null/null).
-    const SAMPLE_HOLIDAYS: &str = r#"{
-        "CM": [{"tradingDate":"26-Jan-2026","weekDay":"Monday","description":"Republic Day",
-            "morning_session":null,"evening_session":null,"Sr_no":2}],
-        "COM": [{"tradingDate":"01-Jan-2026","weekDay":"Thursday","description":"New year",
-            "morning_session":"Open","evening_session":"Closed","Sr_no":1}]
-    }"#;
+    const SAMPLE_HOLIDAYS: &str = include_str!("../../tests/fixtures/live/sample_holidays.json");
 
     #[test]
     fn deserializes_real_holiday_list_shape_and_flattens_segments() {

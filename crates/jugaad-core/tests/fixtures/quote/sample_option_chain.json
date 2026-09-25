@@ -1,0 +1,46 @@
+{
+  "records": {
+    "data": [
+      {
+        "expiryDates": "22-Sep-2026",
+        "strikePrice": 21350,
+        "CE": {
+          "buyPrice1": 1900.75,
+          "buyQuantity1": 780,
+          "change": 0,
+          "changeinOpenInterest": 0,
+          "identifier": "OPTIDXNIFTY22-09-2026CE21350.00",
+          "impliedVolatility": 0,
+          "lastPrice": 0,
+          "openInterest": 0,
+          "pChange": 0,
+          "pchangeinOpenInterest": 0,
+          "sellPrice1": 2080.45,
+          "sellQuantity1": 780,
+          "totalBuyQuantity": 3315,
+          "totalSellQuantity": 4940,
+          "totalTradedVolume": 0,
+          "underlyingValue": 23346.4
+        },
+        "PE": {
+          "buyPrice1": 1.05,
+          "buyQuantity1": 8385,
+          "change": -0.1,
+          "changeinOpenInterest": 9090,
+          "identifier": "OPTIDXNIFTY22-09-2026PE21350.00",
+          "impliedVolatility": 33.13,
+          "lastPrice": 1.1,
+          "openInterest": 97418,
+          "pChange": -8.333333333333334,
+          "pchangeinOpenInterest": 10.291187392446336,
+          "sellPrice1": 1.1,
+          "sellQuantity1": 1105,
+          "totalBuyQuantity": 1331720,
+          "totalSellQuantity": 192790,
+          "totalTradedVolume": 188886,
+          "underlyingValue": 23346.4
+        }
+      }
+    ]
+  }
+}

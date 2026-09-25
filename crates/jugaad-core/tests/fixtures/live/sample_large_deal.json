@@ -1,0 +1,38 @@
+{
+  "BULK_DEALS_DATA": [
+    {
+      "buySell": "SELL",
+      "clientName": "SATISH MEJIYATAR",
+      "date": "22-Sep-2026",
+      "name": "Kshitij Polyline Limited",
+      "qty": "2277241",
+      "remarks": "-",
+      "symbol": "KSHITIJPOL",
+      "watp": "4.62"
+    }
+  ],
+  "SHORT_DEALS_DATA": [
+    {
+      "buySell": null,
+      "clientName": null,
+      "date": "22-Sep-2026",
+      "name": "63 MOONS TECHNOLOGIES LTD",
+      "qty": "5",
+      "remarks": null,
+      "symbol": "63MOONS",
+      "watp": null
+    }
+  ],
+  "BLOCK_DEALS_DATA": [
+    {
+      "buySell": "BUY",
+      "clientName": "BANDHAN MUTUAL FUND",
+      "date": "22-Sep-2026",
+      "name": "RHI MAGNESITA INDIA LTD",
+      "qty": "2777777",
+      "remarks": null,
+      "symbol": "RHIM",
+      "watp": "360"
+    }
+  ]
+}

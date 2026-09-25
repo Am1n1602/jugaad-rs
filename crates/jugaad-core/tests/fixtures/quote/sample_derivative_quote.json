@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "change": 46.6,
+      "changeinOpenInterest": -3775,
+      "closePrice": 23378.5,
+      "expiryDate": "29-Sep-2026",
+      "highPrice": 23420,
+      "identifier": "FUTIDXNIFTY29-09-2026XX0.00",
+      "instrumentType": "FUTIDX",
+      "lastPrice": 23380,
+      "lowPrice": 23312.6,
+      "openInterest": 268025,
+      "openPrice": 23379,
+      "optionType": "XX",
+      "pchange": 0.19971371510367114,
+      "pchangeinOpenInterest": -1.3888888888888888,
+      "prevClose": 23333.4,
+      "strikePrice": "       0.00",
+      "totalTradedVolume": 23208,
+      "totalTurnover": 35250627718.8,
+      "underlying": "NIFTY",
+      "underlyingValue": 23346.4
+    }
+  ],
+  "timestamp": "18-Sep-2026 17:00:00"
+}

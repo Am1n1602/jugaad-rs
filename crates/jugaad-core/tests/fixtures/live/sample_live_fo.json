@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "underlying": "NIFTY",
+      "identifier": "FUTIDXNIFTY29-09-2026XX0.00",
+      "instrumentType": "FUTIDX",
+      "instrument": "Index Futures",
+      "contract": "NIFTY 29-Sep-2026",
+      "expiryDate": "29-Sep-2026",
+      "optionType": "-",
+      "strikePrice": 0,
+      "lastPrice": 23380,
+      "change": 46.6,
+      "pChange": 0.2,
+      "openPrice": 23379,
+      "highPrice": 23420,
+      "lowPrice": 23312.6,
+      "closePrice": 23378.5,
+      "volume": 1508520,
+      "totalTurnover": 35250627718.8,
+      "value": 35250627718.8,
+      "premiumTurnOver": 35250627718.8,
+      "underlyingValue": 23346.4,
+      "openInterest": 268025,
+      "noOfTrades": 23208
+    }
+  ]
+}

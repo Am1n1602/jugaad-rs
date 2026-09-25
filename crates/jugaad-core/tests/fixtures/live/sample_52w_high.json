@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "change": 58.65,
+      "comapnyName": "Aarti Pharmalabs Limited",
+      "ltp": 942.4,
+      "new52WHL": 957.3,
+      "pChange": 6.636492220650637,
+      "prev52WHL": 932.6,
+      "prevClose": "883.75",
+      "prevHLDate": "11-Aug-2026",
+      "series": "EQ",
+      "symbol": "AARTIPHARM"
+    }
+  ],
+  "high": 1
+}

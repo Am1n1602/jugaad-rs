@@ -25,11 +25,11 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{NaiveDate, NaiveDateTime};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
+use super::http::{HttpClient, client_builder, with_retry};
 use super::live::{download_bytes, filename_from_url, write_csv};
 use crate::error::{Error, Result};
 
@@ -301,13 +301,15 @@ struct IntegratedFilingResponse<T> {
 
 #[derive(Debug, Clone)]
 pub struct NseCorporateAnnouncements {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseCorporateAnnouncements {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     /// Fetches corporate announcements for `segment` between `from_date`
@@ -600,16 +602,8 @@ mod tests {
     }
 
     // Real response captured live from NSE for the equities segment.
-    const SAMPLE_EQUITIES: &str = r#"[{
-        "an_dt":"21-Sep-2026 20:34:32","attFileSize":"1.22 MB",
-        "attchmntFile":"https://nsearchives.nseindia.com/corporate/LUMINO123_21092026203419_Reg30Intimation.pdf",
-        "attchmntText":"Lumino Industries Limited has informed the Exchange regarding a press release.",
-        "bflag":null,"csvName":null,"desc":"Press Release","difference":"00:00:01",
-        "dt":"21092026203432","exchdisstime":"21-Sep-2026 20:34:33","fileSize":"1.22 MB",
-        "hasXbrl":true,"old_new":null,"orgid":null,"seq_id":"106786694","smIndustry":null,
-        "sm_isin":"INE185Q01025","sm_name":"Lumino Industries Limited",
-        "sort_date":"2026-09-21 20:34:32","symbol":"LUMINO"
-    }]"#;
+    const SAMPLE_EQUITIES: &str =
+        include_str!("../../tests/fixtures/corporate_announcements/sample_equities.json");
 
     #[test]
     fn deserializes_real_equities_shape() {
@@ -632,15 +626,8 @@ mod tests {
 
     // Real response shape captured live for the debt segment - no
     // symbol/isin (bonds have neither), uppercase month abbreviation.
-    const SAMPLE_DEBT: &str = r#"[{
-        "an_dt":"21-SEP-2026 20:05:59","attFileSize":"469.85 KB",
-        "attchmntFile":"https://nsearchives.nseindia.com/content/debt/WDM/Grip_Payment.pdf",
-        "attchmntText":"Payment confirmation.","bflag":null,"csvName":null,
-        "desc":"Payment Confirmation","difference":"00:00:00","dt":"21092026200559",
-        "exchdisstime":"21-SEP-2026 20:05:59","fileSize":"469.85 KB","hasXbrl":false,
-        "old_new":null,"orgid":null,"seq_id":"106786000","smIndustry":null,
-        "sm_isin":null,"sm_name":"Grip Prosperity Asset 1","sort_date":null,"symbol":null
-    }]"#;
+    const SAMPLE_DEBT: &str =
+        include_str!("../../tests/fixtures/corporate_announcements/sample_debt.json");
 
     #[test]
     fn debt_segment_has_no_symbol_or_isin_and_uppercase_month() {
@@ -658,15 +645,8 @@ mod tests {
 
     // Real response shape captured live for the mf segment - no
     // attachment, and `smIndustry` sent as the literal string "-".
-    const SAMPLE_MF: &str = r#"[{
-        "an_dt":"21-Sep-2026 17:39:00","attFileSize":null,"attchmntFile":null,
-        "attchmntText":"Net Asset Value update.","bflag":null,"csvName":null,
-        "desc":"General Updates","difference":"00:00:00","dt":"21092026173900",
-        "exchdisstime":"21-Sep-2026 17:39:00","fileSize":null,"hasXbrl":false,
-        "old_new":null,"orgid":null,"seq_id":"106785000","smIndustry":"-",
-        "sm_isin":null,"sm_name":"DSP BSE Sensex ETF","sort_date":"2026-09-21 17:39:00",
-        "symbol":"SENSEXADD"
-    }]"#;
+    const SAMPLE_MF: &str =
+        include_str!("../../tests/fixtures/corporate_announcements/sample_mf.json");
 
     #[test]
     fn mf_segment_normalizes_dash_industry_to_none_and_allows_null_attachment() {
@@ -714,14 +694,8 @@ mod tests {
 
     // Real response shape captured live for the sse segment - note the
     // completely different field names from every other segment.
-    const SAMPLE_SSE: &str = r#"[{
-        "an_attach":"https://nsearchives.nseindia.com/corporate/500003401_19092026173745_Annexurespdf.pdf",
-        "an_desc":"General Updates","ann_Date":"19-Sep-2026 17:37:00",
-        "ann_date":"19-Sep-2026 17:37:00","ann_tstamp":"19-Sep-2026 17:37:50",
-        "attFileSize":"571.59 KB","bm_Date":null,"bm_date":null,
-        "comp_name":"Sewa International","diff_time":"00:00:50","hasXbrl":true,
-        "seq_id":"500003401","symbol":null,"text":"Renewal of registration"
-    }]"#;
+    const SAMPLE_SSE: &str =
+        include_str!("../../tests/fixtures/corporate_announcements/sample_sse.json");
 
     #[test]
     fn deserializes_real_sse_shape() {
@@ -743,14 +717,8 @@ mod tests {
 
     // Real response shape captured live: a social enterprise with its own
     // `-SE`-suffixed symbol, and an attachment with no recorded file size.
-    const SAMPLE_SSE_WITH_SYMBOL: &str = r#"[{
-        "an_attach":"https://nsearchives.nseindia.com/corporate/EFSE_annual.pdf",
-        "an_desc":"Annual Disclosure","ann_Date":"15-Jul-2026 12:00:00",
-        "ann_date":"15-Jul-2026 12:00:00","ann_tstamp":"15-Jul-2026 12:00:10",
-        "attFileSize":null,"bm_Date":null,"bm_date":null,
-        "comp_name":"Ekalavya Foundation","diff_time":"00:00:10","hasXbrl":false,
-        "seq_id":"500001000","symbol":"EF-SE","text":"Annual disclosure filing"
-    }]"#;
+    const SAMPLE_SSE_WITH_SYMBOL: &str =
+        include_str!("../../tests/fixtures/corporate_announcements/sample_sse_with_symbol.json");
 
     #[test]
     fn sse_symbol_and_null_file_size_with_present_attachment() {
@@ -766,18 +734,9 @@ mod tests {
     // Real response captured live from /api/integrated-filing-results for
     // the Financials type - a dead pdf_attach sentinel (ends in `/null`),
     // which should normalize to `None`.
-    const SAMPLE_INTEGRATED_FILING_FINANCIALS: &str = r#"{"data":[{
-        "attFileSize":"0 Bytes","audited":"Un-Audited","broadcast_Date":"23-Sep-2026 19:18:03",
-        "cmName":"Winsome Yarns Limited","consolidated":"Standalone",
-        "creation_Date":"23-Sep-2026 19:19:30","diff":"00:01:27",
-        "ixbrl":"https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_195779_23092026191929_iXBRL_WEB.html",
-        "ixbrlFileSize":"45.93 KB","pdf_attach":"https://nsearchives.nseindia.com/corporate/null",
-        "qe_Date":"30-JUN-2026","revised_Date":null,"revision_Remark":null,"seq_Id":"195779",
-        "smName":"Winsome Yarns Limited","symbol":"WINSOME","type":"Integrated Filing- Financials",
-        "type_Sub":"Original",
-        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_1727118_23092026071929_WEB.xml",
-        "xbrlFileSize":"19.92 KB"
-    }],"size":5,"page":0,"totalCount":26772}"#;
+    const SAMPLE_INTEGRATED_FILING_FINANCIALS: &str = include_str!(
+        "../../tests/fixtures/corporate_announcements/sample_integrated_filing_financials.json"
+    );
 
     #[test]
     fn deserializes_real_financials_shape_and_normalizes_dead_pdf_sentinel() {
@@ -802,19 +761,9 @@ mod tests {
     // Real response captured live for the Governance type - `audited`/
     // `consolidated` are `null` (not applicable to governance filings),
     // and `pdf_attach` is a genuinely real, working URL here.
-    const SAMPLE_INTEGRATED_FILING_GOVERNANCE: &str = r#"{"data":[{
-        "attFileSize":"1.02 MB","audited":null,"broadcast_Date":"19-Sep-2026 13:24:26",
-        "cmName":"Morarjee Textiles Limited","consolidated":null,
-        "creation_Date":"19-Sep-2026 13:24:29","diff":"00:00:03",
-        "ixbrl":"https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_GOVERNANCE_194861_19092026132428_iXBRL_WEB.html",
-        "ixbrlFileSize":"42.16 KB",
-        "pdf_attach":"https://nsearchives.nseindia.com/corporate/HOVS_22092026134458_HGM-Clarification22Sept2026.pdf",
-        "qe_Date":"30-JUN-2026","revised_Date":"23-SEP-2026 18:17:08",
-        "revision_Remark":"Revised","seq_Id":"194861","smName":"Morarjee Textiles Limited",
-        "symbol":"MORARJEE","type":"Integrated Filing- Governance","type_Sub":"New",
-        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GOVERNANCE_1725646_19092026012428_WEB.xml",
-        "xbrlFileSize":"32.20 KB"
-    }]}"#;
+    const SAMPLE_INTEGRATED_FILING_GOVERNANCE: &str = include_str!(
+        "../../tests/fixtures/corporate_announcements/sample_integrated_filing_governance.json"
+    );
 
     #[test]
     fn deserializes_real_governance_shape_with_null_audited_and_real_pdf_url() {
@@ -841,17 +790,9 @@ mod tests {
     // Real response captured live: a Governance-type row where
     // `xbrlFileSize`/`ixbrlFileSize` are `null`, not the always-populated
     // string a smaller sample suggested.
-    const SAMPLE_INTEGRATED_FILING_NULL_FILE_SIZES: &str = r#"{"data":[{
-        "attFileSize":null,"audited":null,"broadcast_Date":"04-Sep-2026 18:31:41",
-        "cmName":"Filatex Fashions Limited","consolidated":null,
-        "creation_Date":"04-Sep-2026 18:31:42",
-        "ixbrl":"https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_GOVERNANCE_192103_04092026183141_iXBRL_WEB.html",
-        "ixbrlFileSize":null,"pdf_attach":null,"qe_Date":"30-JUN-2026","revised_Date":null,
-        "revision_Remark":null,"seq_Id":"192103","smName":"Filatex Fashions Limited",
-        "symbol":"FILATFASH","type":"Integrated Filing- Governance","type_Sub":"New",
-        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GOVERNANCE_1721515_04092026063140_WEB.xml",
-        "xbrlFileSize":null
-    }]}"#;
+    const SAMPLE_INTEGRATED_FILING_NULL_FILE_SIZES: &str = include_str!(
+        "../../tests/fixtures/corporate_announcements/sample_integrated_filing_null_file_sizes.json"
+    );
 
     #[test]
     fn accepts_null_xbrl_and_ixbrl_file_sizes() {
@@ -877,6 +818,44 @@ mod tests {
             header,
             "symbol,company_name,security_name,filing_type,filing_sub_type,period_ended,audited,consolidated,broadcast_time,creation_time,revised_time,revision_remark,xbrl_url,xbrl_file_size,ixbrl_url,ixbrl_file_size,pdf_attachment_url,pdf_attachment_file_size,sequence_id"
         );
+    }
+
+    // Full real Integrated Filing responses (1000 Financials rows, 500
+    // Governance rows), captured live specifically because the small
+    // hand-picked samples above only demonstrate one bug each (the dead
+    // pdf_attach sentinel, the null file sizes) on a single row.
+    // Deserializing the whole thing checks every row parses, not just the
+    // one known-bad one - the actual regression guard against whatever
+    // the next edge case turns out to be.
+    const LARGE_INTEGRATED_FILING_FINANCIALS: &str = include_str!(
+        "../../tests/fixtures/corporate_announcements/large_integrated_filing_financials.json"
+    );
+    const LARGE_INTEGRATED_FILING_GOVERNANCE: &str = include_str!(
+        "../../tests/fixtures/corporate_announcements/large_integrated_filing_governance.json"
+    );
+
+    #[test]
+    fn deserializes_full_real_integrated_filing_responses() {
+        let financials: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(LARGE_INTEGRATED_FILING_FINANCIALS).unwrap();
+        let governance: IntegratedFilingResponse<IntegratedFilingRow> =
+            serde_json::from_str(LARGE_INTEGRATED_FILING_GOVERNANCE).unwrap();
+
+        assert_eq!(financials.data.len(), 1000);
+        assert_eq!(governance.data.len(), 500);
+
+        // Both known (at fixture-capture time) to contain all three
+        // pdf_attach states / both null-file-size cases - confirms the
+        // normalization holds across the full response, not just the one
+        // row each smaller sample was built from.
+        let real_pdf_count = financials
+            .data
+            .iter()
+            .filter(|r| r.pdf_attachment_url.is_some())
+            .count();
+        assert!(real_pdf_count > 0);
+        assert!(governance.data.iter().any(|r| r.xbrl_file_size.is_none()));
+        assert!(governance.data.iter().any(|r| r.ixbrl_file_size.is_none()));
     }
 
     // Confirmed live: a missing/invalid `type` param returns this envelope

@@ -2,10 +2,10 @@ use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use zip::ZipArchive;
 
-use super::USER_AGENT;
+use super::http::{HttpClient, client_builder, with_retry};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://nsearchives.nseindia.com";
@@ -23,13 +23,15 @@ fn udiff_start_date() -> NaiveDate {
 
 #[derive(Debug)]
 pub struct NseArchives {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseArchives {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     /// Fetches the bhavcopy CSV text for a single trading day, automatically
@@ -195,7 +197,7 @@ impl NseArchives {
 
 /// Sends `request`, checks for the status codes shared by every bhavcopy
 /// endpoint in this module, then unzips the single CSV file in the response.
-async fn fetch_zip_csv(request: reqwest::RequestBuilder) -> Result<String> {
+async fn fetch_zip_csv(request: reqwest_middleware::RequestBuilder) -> Result<String> {
     let response = request.send().await?;
 
     match response.status() {

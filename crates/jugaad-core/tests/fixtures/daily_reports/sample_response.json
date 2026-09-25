@@ -1,0 +1,32 @@
+{
+  "PreviousDay": [
+    {
+      "fileHashKey": "CM-UDIFF-BHAVCOPY-CSV-1",
+      "fileKey": "CM-UDIFF-BHAVCOPY-CSV",
+      "fileSegment": "CM",
+      "displayName": "CM-UDiFF Common Bhavcopy Final (zip)",
+      "fileActlName": "BhavCopy_NSE_CM_0_0_0_20260917_F_0000.csv.zip",
+      "filePath": "https://nsearchives.nseindia.com//content/cm/",
+      "tradingDate": "17-Sep-2026",
+      "filePosition": 30,
+      "fileSize": "199.20 KB"
+    }
+  ],
+  "CurrentDay": [
+    {
+      "fileHashKey": "CM-UDIFF-BHAVCOPY-CSV-2",
+      "fileKey": "CM-UDIFF-BHAVCOPY-CSV",
+      "fileSegment": "CM",
+      "displayName": "CM-UDiFF Common Bhavcopy Final (zip)",
+      "fileActlName": "BhavCopy_NSE_CM_0_0_0_20260918_F_0000.csv.zip",
+      "filePath": "https://nsearchives.nseindia.com//content/cm/",
+      "tradingDate": "18-Sep-2026",
+      "filePosition": 30,
+      "fileSize": "200.14 KB"
+    }
+  ],
+  "FutureDay": [],
+  "currentDate": "18-Sep-2026",
+  "previousDate": "17-Sep-2026",
+  "futureDate": ""
+}

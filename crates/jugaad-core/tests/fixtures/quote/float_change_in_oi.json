@@ -1,0 +1,28 @@
+{
+  "records": {
+    "data": [
+      {
+        "expiryDates": "29-Sep-2026",
+        "strikePrice": 34500,
+        "CE": {
+          "buyPrice1": 0,
+          "buyQuantity1": 0,
+          "change": 0,
+          "changeinOpenInterest": 48608.769230769234,
+          "identifier": "OPTIDXNIFTY29-09-2026CE34500.00",
+          "impliedVolatility": 0,
+          "lastPrice": 0,
+          "openInterest": 0,
+          "pChange": 0,
+          "pchangeinOpenInterest": 0,
+          "sellPrice1": 0,
+          "sellQuantity1": 0,
+          "totalBuyQuantity": 0,
+          "totalSellQuantity": 0,
+          "totalTradedVolume": 0,
+          "underlyingValue": 23446.8
+        }
+      }
+    ]
+  }
+}

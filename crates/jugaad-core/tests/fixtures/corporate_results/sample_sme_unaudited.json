@@ -1,0 +1,18 @@
+[
+  {
+    "audited": "Unaudited",
+    "companyName": "Some SME Co",
+    "consolidated": "Non-Consolidated",
+    "filingDate": "10-Jul-2026 10:00",
+    "fromDate": "01-Apr-2026",
+    "indAs": "Non-Ind-AS",
+    "isin": "INE000X01011",
+    "period": "Quarterly",
+    "relatingTo": "First Quarter",
+    "resultDescription": null,
+    "resultDetailedDataLink": null,
+    "symbol": "SMECO",
+    "toDate": "30-Jun-2026",
+    "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/XYZ123.xml"
+  }
+]

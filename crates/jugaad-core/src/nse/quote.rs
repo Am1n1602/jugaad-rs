@@ -5,11 +5,11 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
+use super::http::{HttpClient, client_builder, with_retry};
 use super::live::write_csv;
 use crate::error::{Error, Result};
 
@@ -1366,13 +1366,15 @@ where
 
 #[derive(Debug, Clone)]
 pub struct NseQuote {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseQuote {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     /// Fetches a stock's live quote: price/change, day and 52-week range,
@@ -1969,24 +1971,8 @@ mod tests {
 
     // Real response captured from NSE's NextApi getSymbolData for SBIN,
     // trimmed to one field per sub-object plus what this crate keeps.
-    const SAMPLE_STOCK_QUOTE: &str = r#"{"equityResponse":[{
-        "orderBook":{"buyPrice1":998,"buyQuantity1":100,"buyPrice2":0,"buyQuantity2":0,
-            "buyPrice3":0,"buyQuantity3":0,"buyPrice4":0,"buyQuantity4":0,"buyPrice5":0,"buyQuantity5":0,
-            "sellPrice1":999,"sellQuantity1":50,"sellPrice2":0,"sellQuantity2":0,
-            "sellPrice3":0,"sellQuantity3":0,"sellPrice4":0,"sellQuantity4":0,"sellPrice5":0,"sellQuantity5":0,
-            "lastPrice":996.2,"totalBuyQuantity":100,"totalSellQuantity":50,"perBuyQty":66.6,"perSellQty":33.3},
-        "metaData":{"identifier":"SBINEQN","companyName":"State Bank of India","isinCode":"INE062A01020",
-            "symbol":"SBIN","series":"EQ","marketType":"N","open":992,"dayHigh":996.2,"dayLow":985.1,
-            "previousClose":988.7,"averagePrice":991.89,"change":7.5,"basePrice":988.7,"closePrice":996.2,
-            "indicativeClose":0,"pChange":0.76},
-        "tradeInfo":{"totalTradedVolume":5699456,"totalTradedValue":5653233411.84,"series":"EQ",
-            "lastPrice":996.2,"issuedSize":9230766786,"basePrice":988.7,"faceValue":1,
-            "deliveryToTradedQuantity":63.91,"marketLot":null,"quantitytraded":5699456,
-            "deliveryquantity":3642518,"totalMarketCap":9195689872213.2},
-        "priceInfo":{"yearHightDt":"24-Feb-2026 00:00:00","yearLowDt":"17-Sep-2025 00:00:00",
-            "yearHigh":1234.7,"yearLow":831,"priceBand":"889.90-1087.50"},
-        "lastUpdateTime":"18-Sep-2026 16:00:00"
-    }]}"#;
+    const SAMPLE_STOCK_QUOTE: &str =
+        include_str!("../../tests/fixtures/quote/sample_stock_quote.json");
 
     #[test]
     fn deserializes_real_stock_quote_shape() {
@@ -2005,19 +1991,7 @@ mod tests {
 
     #[test]
     fn stock_quote_handles_null_delivery_fields() {
-        const NO_DELIVERY: &str = r#"{"equityResponse":[{
-            "orderBook":{"buyPrice1":0,"buyQuantity1":0,"buyPrice2":0,"buyQuantity2":0,
-                "buyPrice3":0,"buyQuantity3":0,"buyPrice4":0,"buyQuantity4":0,"buyPrice5":0,"buyQuantity5":0,
-                "sellPrice1":0,"sellQuantity1":0,"sellPrice2":0,"sellQuantity2":0,
-                "sellPrice3":0,"sellQuantity3":0,"sellPrice4":0,"sellQuantity4":0,"sellPrice5":0,"sellQuantity5":0,
-                "lastPrice":10,"totalBuyQuantity":0,"totalSellQuantity":0,"perBuyQty":0,"perSellQty":0},
-            "metaData":{"symbol":"X","companyName":"X Ltd","series":"EQ","open":10,"dayHigh":10,
-                "dayLow":10,"previousClose":10,"change":0,"pChange":0},
-            "tradeInfo":{"totalTradedVolume":0,"totalTradedValue":0,"faceValue":10,
-                "deliveryquantity":null,"deliveryToTradedQuantity":null,"totalMarketCap":null,"lastPrice":10},
-            "priceInfo":{"yearHigh":10,"yearLow":10},
-            "lastUpdateTime":"18-Sep-2026 16:00:00"
-        }]}"#;
+        const NO_DELIVERY: &str = include_str!("../../tests/fixtures/quote/no_delivery.json");
         let parsed: StockQuoteResponse = serde_json::from_str(NO_DELIVERY).unwrap();
         let quote = StockQuote::from(parsed.equity_response.into_iter().next().unwrap());
 
@@ -2028,14 +2002,8 @@ mod tests {
 
     // Real response captured from NSE's NextApi getSymbolDerivativesData
     // for NIFTY - one futures row (sentinel strike/option-type values).
-    const SAMPLE_DERIVATIVE_QUOTE: &str = r#"{"data":[
-        {"change":46.6,"changeinOpenInterest":-3775,"closePrice":23378.5,"expiryDate":"29-Sep-2026",
-         "highPrice":23420,"identifier":"FUTIDXNIFTY29-09-2026XX0.00","instrumentType":"FUTIDX",
-         "lastPrice":23380,"lowPrice":23312.6,"openInterest":268025,"openPrice":23379,"optionType":"XX",
-         "pchange":0.19971371510367114,"pchangeinOpenInterest":-1.3888888888888888,"prevClose":23333.4,
-         "strikePrice":"       0.00","totalTradedVolume":23208,"totalTurnover":35250627718.8,
-         "underlying":"NIFTY","underlyingValue":23346.4}
-    ],"timestamp":"18-Sep-2026 17:00:00"}"#;
+    const SAMPLE_DERIVATIVE_QUOTE: &str =
+        include_str!("../../tests/fixtures/quote/sample_derivative_quote.json");
 
     #[test]
     fn deserializes_real_derivative_quote_shape_and_trims_padded_strike() {
@@ -2062,13 +2030,7 @@ mod tests {
     // response that has plain integers for others.
     #[test]
     fn derivative_quote_accepts_float_formatted_open_interest() {
-        const FLOAT_OI: &str = r#"{"data":[
-            {"change":0,"changeinOpenInterest":90670.0,"closePrice":0,"expiryDate":"29-Sep-2026",
-             "highPrice":0,"identifier":"X","instrumentType":"OPTIDX","lastPrice":0,"lowPrice":0,
-             "openInterest":195178.0,"openPrice":0,"optionType":"CE","pchange":0,
-             "pchangeinOpenInterest":0,"prevClose":0,"strikePrice":"   100.00","totalTradedVolume":0,
-             "totalTurnover":0,"underlying":"NIFTY","underlyingValue":0}
-        ],"timestamp":""}"#;
+        const FLOAT_OI: &str = include_str!("../../tests/fixtures/quote/float_oi.json");
         let parsed: DerivativeQuoteResponse = serde_json::from_str(FLOAT_OI).unwrap();
 
         assert_eq!(parsed.data[0].open_interest, 195_178);
@@ -2077,12 +2039,8 @@ mod tests {
 
     // Real response captured from NSE's equity-stock-indices API for
     // NIFTY 50.
-    const SAMPLE_INDEX_QUOTE: &str = r#"{"data":[
-        {"symbol":"NIFTY 50","identifier":"NIFTY 50","lastPrice":23346.4,"change":75.8,
-         "pChange":0.33,"open":23334.7,"dayHigh":23389.15,"dayLow":23286.6,"previousClose":23270.6,
-         "yearHigh":26373.2,"yearLow":22182.55,"totalTradedVolume":375346024,
-         "totalTradedValue":315100980667.31,"lastUpdateTime":"2026-09-18 15:39:59"}
-    ],"marketStatus":{"market":"CM","marketStatus":"Closed"},"timestamp":"18-Sep-2026 17:00:00"}"#;
+    const SAMPLE_INDEX_QUOTE: &str =
+        include_str!("../../tests/fixtures/quote/sample_index_quote.json");
 
     #[test]
     fn deserializes_real_index_quote_shape() {
@@ -2102,19 +2060,8 @@ mod tests {
     }
 
     // Real response captured from NSE's option-chain-v3 API for NIFTY.
-    const SAMPLE_OPTION_CHAIN: &str = r#"{"records":{"data":[
-        {"expiryDates":"22-Sep-2026","strikePrice":21350,
-         "CE":{"buyPrice1":1900.75,"buyQuantity1":780,"change":0,"changeinOpenInterest":0,
-               "identifier":"OPTIDXNIFTY22-09-2026CE21350.00","impliedVolatility":0,"lastPrice":0,
-               "openInterest":0,"pChange":0,"pchangeinOpenInterest":0,"sellPrice1":2080.45,
-               "sellQuantity1":780,"totalBuyQuantity":3315,"totalSellQuantity":4940,
-               "totalTradedVolume":0,"underlyingValue":23346.4},
-         "PE":{"buyPrice1":1.05,"buyQuantity1":8385,"change":-0.1,"changeinOpenInterest":9090,
-               "identifier":"OPTIDXNIFTY22-09-2026PE21350.00","impliedVolatility":33.13,"lastPrice":1.1,
-               "openInterest":97418,"pChange":-8.333333333333334,"pchangeinOpenInterest":10.291187392446336,
-               "sellPrice1":1.1,"sellQuantity1":1105,"totalBuyQuantity":1331720,"totalSellQuantity":192790,
-               "totalTradedVolume":188886,"underlyingValue":23346.4}}
-    ]}}"#;
+    const SAMPLE_OPTION_CHAIN: &str =
+        include_str!("../../tests/fixtures/quote/sample_option_chain.json");
 
     #[test]
     fn deserializes_real_option_chain_shape() {
@@ -2133,18 +2080,8 @@ mod tests {
     // with a null identifier and every numeric field zeroed out.
     #[test]
     fn option_leg_with_no_real_contract_has_null_identifier() {
-        const NO_CONTRACT_LEG: &str = r#"{"records":{"data":[
-            {"expiryDates":"29-Sep-2026","strikePrice":1190,
-             "CE":{"buyPrice1":0.15,"buyQuantity1":54750,"change":-0.05,"changeinOpenInterest":-9,
-                   "identifier":"OPTSTKSBIN29-09-2026CE1190.00","impliedVolatility":42.72,"lastPrice":0.25,
-                   "openInterest":195,"pChange":-16.67,"pchangeinOpenInterest":-4.41,"sellPrice1":0.2,
-                   "sellQuantity1":1500,"totalBuyQuantity":432750,"totalSellQuantity":289500,
-                   "totalTradedVolume":25,"underlyingValue":996.2},
-             "PE":{"buyPrice1":0,"buyQuantity1":0,"change":0,"changeinOpenInterest":0,
-                   "identifier":null,"impliedVolatility":0,"lastPrice":0,"openInterest":0,"pChange":0,
-                   "pchangeinOpenInterest":0,"sellPrice1":0,"sellQuantity1":0,"totalBuyQuantity":0,
-                   "totalSellQuantity":0,"totalTradedVolume":0,"underlyingValue":0}}
-        ]}}"#;
+        const NO_CONTRACT_LEG: &str =
+            include_str!("../../tests/fixtures/quote/no_contract_leg.json");
         let parsed: OptionChainResponse<OptionChainRow> =
             serde_json::from_str(NO_CONTRACT_LEG).unwrap();
         let row = &parsed.records.unwrap().data[0];
@@ -2164,19 +2101,32 @@ mod tests {
     // hand-picked small sample never would have.
     #[test]
     fn option_leg_accepts_float_formatted_change_in_open_interest() {
-        const FLOAT_CHANGE_IN_OI: &str = r#"{"records":{"data":[
-            {"expiryDates":"29-Sep-2026","strikePrice":34500,
-             "CE":{"buyPrice1":0,"buyQuantity1":0,"change":0,"changeinOpenInterest":48608.769230769234,
-                   "identifier":"OPTIDXNIFTY29-09-2026CE34500.00","impliedVolatility":0,"lastPrice":0,
-                   "openInterest":0,"pChange":0,"pchangeinOpenInterest":0,"sellPrice1":0,
-                   "sellQuantity1":0,"totalBuyQuantity":0,"totalSellQuantity":0,
-                   "totalTradedVolume":0,"underlyingValue":23446.8}}
-        ]}}"#;
+        const FLOAT_CHANGE_IN_OI: &str =
+            include_str!("../../tests/fixtures/quote/float_change_in_oi.json");
         let parsed: OptionChainResponse<OptionChainRow> =
             serde_json::from_str(FLOAT_CHANGE_IN_OI).unwrap();
         let row = &parsed.records.unwrap().data[0];
 
         assert_eq!(row.call.as_ref().unwrap().change_in_open_interest, 48609);
+    }
+
+    // A full real NIFTY option chain response (138 strikes), captured live
+    // specifically because the small hand-picked sample above didn't
+    // contain a float-formatted `changeinOpenInterest` and let that bug
+    // through. Deserializing the whole thing, not just one row, is the
+    // actual regression guard - a smaller/different sample could just as
+    // easily miss the next edge case the way this one did.
+    const LARGE_OPTION_CHAIN_NIFTY: &str =
+        include_str!("../../tests/fixtures/quote/large_option_chain_nifty.json");
+
+    #[test]
+    fn deserializes_full_real_nifty_option_chain_response() {
+        let parsed: OptionChainResponse<OptionChainRow> =
+            serde_json::from_str(LARGE_OPTION_CHAIN_NIFTY).unwrap();
+        let rows = parsed.records.unwrap().data;
+
+        assert_eq!(rows.len(), 138);
+        assert!(rows.iter().all(|r| r.call.is_some() || r.put.is_some()));
     }
 
     #[test]
@@ -2188,17 +2138,8 @@ mod tests {
     // Real response captured from NSE's option-chain-currency API for
     // USDINR - note the different leg shape (bidprice/askPrice, not
     // buyPrice1/sellPrice1) and the singular "expiryDate" key.
-    const SAMPLE_CURRENCY_OPTION_CHAIN: &str = r#"{"records":{"data":[
-        {"strikePrice":84.75,"expiryDate":"28-Sep-2026",
-         "PE":{"strikePrice":84.75,"underlying":"USDINR","identifier":"OPTCURUSDINR28-09-2026PE84.7500",
-               "openInterest":0,"changeinOpenInterest":0,"pchangeinOpenInterest":0,"totalTradedVolume":0,
-               "impliedVolatility":0,"lastPrice":0,"change":0,"pChange":0,"totalBuyQuantity":0,
-               "totalSellQuantity":0,"bidQty":0,"bidprice":0,"askQty":0,"askPrice":0,"underlyingValue":95.791},
-         "CE":{"strikePrice":84.75,"underlying":"USDINR","identifier":"OPTCURUSDINR28-09-2026CE84.7500",
-               "openInterest":0,"changeinOpenInterest":0,"pchangeinOpenInterest":0,"totalTradedVolume":0,
-               "impliedVolatility":0,"lastPrice":0,"change":0,"pChange":0,"totalBuyQuantity":0,
-               "totalSellQuantity":0,"bidQty":0,"bidprice":0,"askQty":0,"askPrice":0,"underlyingValue":95.791}}
-    ]}}"#;
+    const SAMPLE_CURRENCY_OPTION_CHAIN: &str =
+        include_str!("../../tests/fixtures/quote/sample_currency_option_chain.json");
 
     #[test]
     fn deserializes_real_currency_option_chain_shape() {
@@ -2227,10 +2168,8 @@ mod tests {
 
     // Real response captured live from NSE's NextApi getSymbolChartData for
     // SBIN with days=1D - one pre-open point, one normal-market point.
-    const SAMPLE_CHART_DATA_1D: &str = r#"{"identifier":"SBINEQN","name":"SBIN",
-        "grapthData":[[1789981259000,996,"PO","-0.2","-0.02"],
-                      [1789982159000,991.6,"NM","-4.6","-0.46"]],
-        "closePrice":996.2}"#;
+    const SAMPLE_CHART_DATA_1D: &str =
+        include_str!("../../tests/fixtures/quote/sample_chart_data_1d.json");
 
     #[test]
     fn deserializes_real_chart_data_shape() {
@@ -2253,10 +2192,8 @@ mod tests {
 
     // Real response captured live for days=1W - only daily closes, no
     // intraday change/percent_change (both null).
-    const SAMPLE_CHART_DATA_1W: &str = r#"{"identifier":"SBINEQN","name":"SBIN",
-        "grapthData":[[1789689600000,996.2,"NM",null,null],
-                      [1789603200000,988.7,"NM",null,null]],
-        "closePrice":996.2}"#;
+    const SAMPLE_CHART_DATA_1W: &str =
+        include_str!("../../tests/fixtures/quote/sample_chart_data_1w.json");
 
     #[test]
     fn chart_data_1w_has_no_change_or_percent_change() {
@@ -2283,8 +2220,8 @@ mod tests {
     }
 
     // Real response captured live for SBIN.
-    const SAMPLE_REG_DETAILS: &str = r#"[{"regAction":null,"scripCode":"NA","symbol":"SBIN",
-        "nseExclusive":"N","status":"A","series":null,"regNote":null}]"#;
+    const SAMPLE_REG_DETAILS: &str =
+        include_str!("../../tests/fixtures/quote/sample_reg_details.json");
 
     #[test]
     fn deserializes_real_reg_details_shape() {
@@ -2295,12 +2232,8 @@ mod tests {
 
     // Real response captured live for SBIN - `is*`/`casFlag` fields are
     // JSON strings ("true"/"false"), not real JSON booleans.
-    const SAMPLE_SYMBOL_META: &str = r#"{"symbol":"SBIN","activeSeries":["EQ","T0"],
-        "companyName":"State Bank of India","debtSeries":[],"isFNOSec":"true","isCASec":"false",
-        "isSLBSec":"true","isDebtSec":"true","tempSuspendedSeries":["IL","N1"],
-        "isSuspended":"false","isETFSec":"false","isDelisted":"false","isin":"INE062A01020",
-        "isMunicipalBond":"false","isHybridSymbol":"false","marketType":"N",
-        "parentSymbol":"SBIN","casFlag":"true"}"#;
+    const SAMPLE_SYMBOL_META: &str =
+        include_str!("../../tests/fixtures/quote/sample_symbol_meta.json");
 
     #[test]
     fn deserializes_real_symbol_meta_shape_with_string_booleans() {
@@ -2336,15 +2269,7 @@ mod tests {
 
     // Real response shape captured live for SBIN - note the two-digit
     // year date format, unlike every other date field in this crate.
-    const SAMPLE_YEARWISE: &str = r#"[{"yesterday_chng_per":0.95,"one_week_chng_per":0.27,
-        "one_month_chng_per":-5.21,"three_month_chng_per":-2.94,"six_month_chng_per":-3.66,
-        "one_year_chng_per":14.19,"two_year_chng_per":23.98,"three_year_chng_per":66.2,
-        "five_year_chng_per":121.01,"one_week_date":"16-SEP-26","index_yesterday_chng_per":-10.33,
-        "index_one_week_chng_per":0.99,"index_one_month_chng_per":-3.32,
-        "index_three_month_chng_per":-1.58,"index_six_month_chng_per":4.15,
-        "index_one_year_chng_per":-6.84,"index_two_year_chng_per":-9.61,
-        "index_three_year_chng_per":19.18,"index_five_year_chng_per":31.55,
-        "index_one_week_date":"16-SEP-26","index_name":"NIFTY 50"}]"#;
+    const SAMPLE_YEARWISE: &str = include_str!("../../tests/fixtures/quote/sample_yearwise.json");
 
     #[test]
     fn deserializes_real_yearwise_data_shape_with_short_year_date() {
@@ -2357,9 +2282,8 @@ mod tests {
     // Real response captured live from `getGraphChart` for NIFTY 50,
     // days=1D - note change/percent_change are real numbers here, unlike
     // `stock_chart_data_raw`'s 1D shape (which sends them as strings).
-    const SAMPLE_INDEX_CHART_1D: &str = r#"{"data":{"identifier":"NIFTY 50","name":"NIFTY 50",
-        "grapthData":[[1790154000000,23329,"PO",0,-0.36],[1790177999000,23446.8,"NM",117.8,0.5]],
-        "closePrice":23329}}"#;
+    const SAMPLE_INDEX_CHART_1D: &str =
+        include_str!("../../tests/fixtures/quote/sample_index_chart_1d.json");
 
     #[test]
     fn deserializes_real_index_chart_1d_shape() {
@@ -2384,9 +2308,8 @@ mod tests {
 
     // Real response captured live for days=1W - non-1D windows send a
     // literal 0/0 for change/percent_change, not null.
-    const SAMPLE_INDEX_CHART_1W: &str = r#"{"data":{"identifier":"NIFTY 50","name":"NIFTY 50",
-        "grapthData":[[1789516800000,23217.6,"NM",0,0],[1790121600000,23446.8,"NM",0,0]],
-        "closePrice":0}}"#;
+    const SAMPLE_INDEX_CHART_1W: &str =
+        include_str!("../../tests/fixtures/quote/sample_index_chart_1w.json");
 
     #[test]
     fn index_chart_1w_uses_zero_not_null_for_change() {

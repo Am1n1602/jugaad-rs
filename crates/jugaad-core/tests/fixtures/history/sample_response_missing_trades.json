@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "CH_SYMBOL": "SBIN",
+      "CH_SERIES": "EQ",
+      "mTIMESTAMP": "05-Jan-2010",
+      "CH_PREVIOUS_CLS_PRICE": 2291.2,
+      "CH_OPENING_PRICE": 2308,
+      "CH_TRADE_HIGH_PRICE": 2310,
+      "CH_TRADE_LOW_PRICE": 2280.1,
+      "CH_LAST_TRADED_PRICE": 2294,
+      "CH_CLOSING_PRICE": 2292.05,
+      "VWAP": 2292.78,
+      "CH_TOT_TRADED_QTY": 1161374,
+      "CH_TOT_TRADED_VAL": 2662775673.75,
+      "CH_TOTAL_TRADES": null,
+      "CH_TIMESTAMP": "2010-01-04T18:30:00.000Z",
+      "COP_DELIV_QTY": 522468,
+      "COP_DELIV_PERC": 44.99
+    }
+  ]
+}

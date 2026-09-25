@@ -1,0 +1,58 @@
+{
+  "equityResponse": [
+    {
+      "orderBook": {
+        "buyPrice1": 0,
+        "buyQuantity1": 0,
+        "buyPrice2": 0,
+        "buyQuantity2": 0,
+        "buyPrice3": 0,
+        "buyQuantity3": 0,
+        "buyPrice4": 0,
+        "buyQuantity4": 0,
+        "buyPrice5": 0,
+        "buyQuantity5": 0,
+        "sellPrice1": 0,
+        "sellQuantity1": 0,
+        "sellPrice2": 0,
+        "sellQuantity2": 0,
+        "sellPrice3": 0,
+        "sellQuantity3": 0,
+        "sellPrice4": 0,
+        "sellQuantity4": 0,
+        "sellPrice5": 0,
+        "sellQuantity5": 0,
+        "lastPrice": 10,
+        "totalBuyQuantity": 0,
+        "totalSellQuantity": 0,
+        "perBuyQty": 0,
+        "perSellQty": 0
+      },
+      "metaData": {
+        "symbol": "X",
+        "companyName": "X Ltd",
+        "series": "EQ",
+        "open": 10,
+        "dayHigh": 10,
+        "dayLow": 10,
+        "previousClose": 10,
+        "change": 0,
+        "pChange": 0
+      },
+      "tradeInfo": {
+        "totalTradedVolume": 0,
+        "totalTradedValue": 0,
+        "faceValue": 10,
+        "deliveryquantity": null,
+        "deliveryToTradedQuantity": null,
+        "totalMarketCap": null,
+        "lastPrice": 10
+      },
+      "priceInfo": {
+        "yearHigh": 10,
+        "yearLow": 10
+      },
+      "lastUpdateTime": "18-Sep-2026 16:00:00"
+    }
+  ]
+}

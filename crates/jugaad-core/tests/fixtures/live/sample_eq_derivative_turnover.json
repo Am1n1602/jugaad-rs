@@ -1,0 +1,46 @@
+{
+  "value": [
+    {
+      "underlying": "NIFTY",
+      "identifier": "OPTIDXNIFTY22-09-2026CE23300.00",
+      "instrumentType": "OPTIDX",
+      "instrument": "Index Options",
+      "expiryDate": "22-Sep-2026",
+      "optionType": "Call",
+      "strikePrice": 23300,
+      "lastPrice": 117.5,
+      "pChange": -2.5300705101617584,
+      "openPrice": 127.2,
+      "highPrice": 149,
+      "lowPrice": 99.15,
+      "numberOfContractsTraded": 5628311,
+      "totalTurnover": 438496.08169900003,
+      "premiumTurnover": 8567926617669.9,
+      "openInterest": 114149,
+      "underlyingValue": 23346.4
+    }
+  ],
+  "val_timestamp": "18-Sep-2026 15:40:00",
+  "volume": [
+    {
+      "underlying": "HDFCBANK",
+      "identifier": "FUTSTKHDFCBANK29-09-2026XX0.00",
+      "instrumentType": "FUTSTK",
+      "instrument": "Stock Futures",
+      "expiryDate": "29-Sep-2026",
+      "optionType": "-",
+      "strikePrice": 0,
+      "lastPrice": 731.45,
+      "pChange": 2.2220669415135212,
+      "openPrice": 717.5,
+      "highPrice": 734.9,
+      "lowPrice": 716.7,
+      "numberOfContractsTraded": 56174,
+      "totalTurnover": 266279.08437,
+      "premiumTurnover": 26627908437,
+      "openInterest": 517811,
+      "underlyingValue": 731
+    }
+  ],
+  "vol_timestamp": "18-Sep-2026 15:40:00"
+}

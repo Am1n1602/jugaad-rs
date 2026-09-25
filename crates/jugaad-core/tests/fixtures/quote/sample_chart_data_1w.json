@@ -1,0 +1,21 @@
+{
+  "identifier": "SBINEQN",
+  "name": "SBIN",
+  "grapthData": [
+    [
+      1789689600000,
+      996.2,
+      "NM",
+      null,
+      null
+    ],
+    [
+      1789603200000,
+      988.7,
+      "NM",
+      null,
+      null
+    ]
+  ],
+  "closePrice": 996.2
+}

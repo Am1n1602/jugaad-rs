@@ -1,0 +1,24 @@
+[
+  {
+    "an_dt": "21-Sep-2026 17:39:00",
+    "attFileSize": null,
+    "attchmntFile": null,
+    "attchmntText": "Net Asset Value update.",
+    "bflag": null,
+    "csvName": null,
+    "desc": "General Updates",
+    "difference": "00:00:00",
+    "dt": "21092026173900",
+    "exchdisstime": "21-Sep-2026 17:39:00",
+    "fileSize": null,
+    "hasXbrl": false,
+    "old_new": null,
+    "orgid": null,
+    "seq_id": "106785000",
+    "smIndustry": "-",
+    "sm_isin": null,
+    "sm_name": "DSP BSE Sensex ETF",
+    "sort_date": "2026-09-21 17:39:00",
+    "symbol": "SENSEXADD"
+  }
+]

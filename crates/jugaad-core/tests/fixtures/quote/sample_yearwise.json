@@ -1,0 +1,25 @@
+[
+  {
+    "yesterday_chng_per": 0.95,
+    "one_week_chng_per": 0.27,
+    "one_month_chng_per": -5.21,
+    "three_month_chng_per": -2.94,
+    "six_month_chng_per": -3.66,
+    "one_year_chng_per": 14.19,
+    "two_year_chng_per": 23.98,
+    "three_year_chng_per": 66.2,
+    "five_year_chng_per": 121.01,
+    "one_week_date": "16-SEP-26",
+    "index_yesterday_chng_per": -10.33,
+    "index_one_week_chng_per": 0.99,
+    "index_one_month_chng_per": -3.32,
+    "index_three_month_chng_per": -1.58,
+    "index_six_month_chng_per": 4.15,
+    "index_one_year_chng_per": -6.84,
+    "index_two_year_chng_per": -9.61,
+    "index_three_year_chng_per": 19.18,
+    "index_five_year_chng_per": 31.55,
+    "index_one_week_date": "16-SEP-26",
+    "index_name": "NIFTY 50"
+  }
+]

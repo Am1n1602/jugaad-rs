@@ -1,0 +1,24 @@
+[
+  {
+    "an_dt": "21-Sep-2026 20:34:32",
+    "attFileSize": "1.22 MB",
+    "attchmntFile": "https://nsearchives.nseindia.com/corporate/LUMINO123_21092026203419_Reg30Intimation.pdf",
+    "attchmntText": "Lumino Industries Limited has informed the Exchange regarding a press release.",
+    "bflag": null,
+    "csvName": null,
+    "desc": "Press Release",
+    "difference": "00:00:01",
+    "dt": "21092026203432",
+    "exchdisstime": "21-Sep-2026 20:34:33",
+    "fileSize": "1.22 MB",
+    "hasXbrl": true,
+    "old_new": null,
+    "orgid": null,
+    "seq_id": "106786694",
+    "smIndustry": null,
+    "sm_isin": "INE185Q01025",
+    "sm_name": "Lumino Industries Limited",
+    "sort_date": "2026-09-21 20:34:32",
+    "symbol": "LUMINO"
+  }
+]

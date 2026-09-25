@@ -1,0 +1,18 @@
+[
+  {
+    "audited": "Audited",
+    "companyName": "Tata Consultancy Services Limited",
+    "consolidated": "Non-Consolidated",
+    "filingDate": "12-Apr-2024 21:04",
+    "fromDate": "01-Apr-2023",
+    "indAs": "Ind-AS New",
+    "isin": "INE467B01029",
+    "period": "Annual",
+    "relatingTo": "Annual",
+    "resultDescription": null,
+    "resultDetailedDataLink": null,
+    "symbol": "TCS",
+    "toDate": "31-Mar-2024",
+    "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_104550_1090534_12042024090438.xml"
+  }
+]

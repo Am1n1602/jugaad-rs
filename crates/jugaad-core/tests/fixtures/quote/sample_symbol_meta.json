@@ -1,0 +1,26 @@
+{
+  "symbol": "SBIN",
+  "activeSeries": [
+    "EQ",
+    "T0"
+  ],
+  "companyName": "State Bank of India",
+  "debtSeries": [],
+  "isFNOSec": "true",
+  "isCASec": "false",
+  "isSLBSec": "true",
+  "isDebtSec": "true",
+  "tempSuspendedSeries": [
+    "IL",
+    "N1"
+  ],
+  "isSuspended": "false",
+  "isETFSec": "false",
+  "isDelisted": "false",
+  "isin": "INE062A01020",
+  "isMunicipalBond": "false",
+  "isHybridSymbol": "false",
+  "marketType": "N",
+  "parentSymbol": "SBIN",
+  "casFlag": "true"
+}

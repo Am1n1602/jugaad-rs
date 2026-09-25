@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "change": 0,
+      "changeinOpenInterest": 90670,
+      "closePrice": 0,
+      "expiryDate": "29-Sep-2026",
+      "highPrice": 0,
+      "identifier": "X",
+      "instrumentType": "OPTIDX",
+      "lastPrice": 0,
+      "lowPrice": 0,
+      "openInterest": 195178,
+      "openPrice": 0,
+      "optionType": "CE",
+      "pchange": 0,
+      "pchangeinOpenInterest": 0,
+      "prevClose": 0,
+      "strikePrice": "   100.00",
+      "totalTradedVolume": 0,
+      "totalTurnover": 0,
+      "underlying": "NIFTY",
+      "underlyingValue": 0
+    }
+  ],
+  "timestamp": ""
+}

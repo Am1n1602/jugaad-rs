@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "symbol": "NIFTY 50",
+      "identifier": "NIFTY 50",
+      "lastPrice": 23346.4,
+      "change": 75.8,
+      "pChange": 0.33,
+      "open": 23334.7,
+      "dayHigh": 23389.15,
+      "dayLow": 23286.6,
+      "previousClose": 23270.6,
+      "yearHigh": 26373.2,
+      "yearLow": 22182.55,
+      "totalTradedVolume": 375346024,
+      "totalTradedValue": 315100980667.31,
+      "lastUpdateTime": "2026-09-18 15:39:59"
+    }
+  ],
+  "marketStatus": {
+    "market": "CM",
+    "marketStatus": "Closed"
+  },
+  "timestamp": "18-Sep-2026 17:00:00"
+}

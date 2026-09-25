@@ -19,11 +19,11 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{NaiveDate, NaiveDateTime};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 
-use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
+use super::http::{HttpClient, client_builder, with_retry};
 use super::live::{download_bytes, filename_from_url, write_csv};
 use crate::error::{Error, Result};
 
@@ -139,13 +139,15 @@ where
 
 #[derive(Debug, Clone)]
 pub struct NseCorporateResults {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseCorporateResults {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     /// Fetches financial-results filings for `symbol` between `from_date`
@@ -273,14 +275,8 @@ mod tests {
 
     // Real response captured from NSE for TCS, equities segment, annual -
     // a recent filing with a real XBRL file.
-    const SAMPLE_RECENT: &str = r#"[{
-        "audited":"Audited","companyName":"Tata Consultancy Services Limited",
-        "consolidated":"Non-Consolidated","filingDate":"12-Apr-2024 21:04",
-        "fromDate":"01-Apr-2023","indAs":"Ind-AS New","isin":"INE467B01029",
-        "period":"Annual","relatingTo":"Annual","resultDescription":null,
-        "resultDetailedDataLink":null,"symbol":"TCS","toDate":"31-Mar-2024",
-        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/INDAS_104550_1090534_12042024090438.xml"
-    }]"#;
+    const SAMPLE_RECENT: &str =
+        include_str!("../../tests/fixtures/corporate_results/sample_recent.json");
 
     #[test]
     fn deserializes_real_recent_filing_shape() {
@@ -305,15 +301,7 @@ mod tests {
 
     // Real response captured from NSE for TCS's oldest annual filing
     // (FY2012-13) - placeholder XBRL, real HTML fallback link instead.
-    const SAMPLE_OLD: &str = r#"[{
-        "audited":"Audited","companyName":"Tata Consultancy Services Limited",
-        "consolidated":"Consolidated","filingDate":"26-Apr-2013 15:49",
-        "fromDate":"01-Apr-2012","indAs":"Non-Ind-AS","isin":"INE467B01029",
-        "period":"Annual","relatingTo":"Annual","resultDescription":null,
-        "resultDetailedDataLink":"https://nsearchives.nseindia.com/archives/financial_results/financial_res_TCS_104184.html",
-        "symbol":"TCS","toDate":"31-Mar-2013",
-        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/-"
-    }]"#;
+    const SAMPLE_OLD: &str = include_str!("../../tests/fixtures/corporate_results/sample_old.json");
 
     #[test]
     fn old_filing_has_placeholder_xbrl_normalized_to_none() {
@@ -326,14 +314,8 @@ mod tests {
 
     // Real response shape captured from NSE for the sme segment - note
     // "Unaudited" (no hyphen), unlike equities' "Un-Audited".
-    const SAMPLE_SME_UNAUDITED: &str = r#"[{
-        "audited":"Unaudited","companyName":"Some SME Co",
-        "consolidated":"Non-Consolidated","filingDate":"10-Jul-2026 10:00",
-        "fromDate":"01-Apr-2026","indAs":"Non-Ind-AS","isin":"INE000X01011",
-        "period":"Quarterly","relatingTo":"First Quarter","resultDescription":null,
-        "resultDetailedDataLink":null,"symbol":"SMECO","toDate":"30-Jun-2026",
-        "xbrl":"https://nsearchives.nseindia.com/corporate/xbrl/XYZ123.xml"
-    }]"#;
+    const SAMPLE_SME_UNAUDITED: &str =
+        include_str!("../../tests/fixtures/corporate_results/sample_sme_unaudited.json");
 
     #[test]
     fn sme_unaudited_spelling_without_hyphen_still_parses() {

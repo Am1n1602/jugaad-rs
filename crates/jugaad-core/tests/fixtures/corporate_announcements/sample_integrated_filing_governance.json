@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "attFileSize": "1.02 MB",
+      "audited": null,
+      "broadcast_Date": "19-Sep-2026 13:24:26",
+      "cmName": "Morarjee Textiles Limited",
+      "consolidated": null,
+      "creation_Date": "19-Sep-2026 13:24:29",
+      "diff": "00:00:03",
+      "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_GOVERNANCE_194861_19092026132428_iXBRL_WEB.html",
+      "ixbrlFileSize": "42.16 KB",
+      "pdf_attach": "https://nsearchives.nseindia.com/corporate/HOVS_22092026134458_HGM-Clarification22Sept2026.pdf",
+      "qe_Date": "30-JUN-2026",
+      "revised_Date": "23-SEP-2026 18:17:08",
+      "revision_Remark": "Revised",
+      "seq_Id": "194861",
+      "smName": "Morarjee Textiles Limited",
+      "symbol": "MORARJEE",
+      "type": "Integrated Filing- Governance",
+      "type_Sub": "New",
+      "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GOVERNANCE_1725646_19092026012428_WEB.xml",
+      "xbrlFileSize": "32.20 KB"
+    }
+  ]
+}

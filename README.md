@@ -150,7 +150,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 More usage examples live in [`crates/jugaad-core/examples/`](crates/jugaad-core/examples/) - runnable with `cargo run -p jugaad-core --example <name>`.
 
+Every client (`NseHistory`, `NseQuote`, etc.) has a 10s connect timeout, a
+30s overall request timeout, and retries transient failures (connection
+errors, timeouts, HTTP 408/429/5xx) up to 3 times with exponential
+backoff and jitter - a request no longer hangs forever or fails outright
+on a one-off blip. A 403 (NSE's bot protection, surfaced as
+`Error::Blocked`) is never retried, since that means the session itself
+is flagged, not that the request was unlucky.
+
+### Error handling
+
+Every fallible call returns `jugaad_core::Result<T>`
+(`Result<T, jugaad_core::Error>`). The variants that matter for a caller:
+
+| Variant | Means |
+|---|---|
+| `NotFound(String)` | The thing you asked for doesn't exist (an unknown daily-report file key, a symbol an endpoint 404s on rather than returning empty). |
+| `NoData` | The identifier is fine, but nothing's published yet (a bhavcopy requested for a weekend/holiday, or a date NSE hasn't released data for). |
+| `Blocked` | NSE's bot protection refused the request (HTTP 403) - not retried automatically, since a flagged session won't succeed on the next attempt either. |
+| `UnexpectedStatus(StatusCode)` | NSE returned a status this crate has no specific handling for. |
+| `Parse(String)` | The response didn't match the shape this crate expects - given how much live verification is behind these types, treat this as a likely NSE schema change worth reporting. |
+| `Http` / `HttpRetry` | The network request itself failed after already retrying transient failures automatically (see above) - a real connection problem or NSE being down, not a one-off blip. |
+| `Io` / `Csv` / `Task` | A local filesystem, CSV-writing, or concurrent-task failure - not an NSE problem. |
+
+Several endpoints intentionally can't distinguish two different
+real-world situations from NSE's response alone - e.g. "no trading
+happened on this date" and "you mistyped the symbol" both come back as
+an empty result, not an error, since inventing a distinction the API
+doesn't actually signal would be misleading. Where this applies, it's
+called out in [`docs/nse-findings.md`](docs/nse-findings.md) and in the
+method's own doc comment.
+
 ## Project structure
+
+```mermaid
+graph LR
+    NSE[("NSE\nnseindia.com / niftyindices.com")]
+    Core["jugaad-core\n(library)"]
+    Cli["jugaad-cli\n(binary)"]
+    Rpc["jugaad-rpc\n(gRPC server)"]
+    Py["Python client"]
+    Node["Node.js client"]
+
+    Core -->|HTTPS| NSE
+    Cli --> Core
+    Rpc --> Core
+    Py -->|gRPC| Rpc
+    Node -->|gRPC| Rpc
+```
 
 - [`crates/jugaad-core`](crates/jugaad-core/) - the library: NSE client types, request/response handling, error types
 - [`crates/jugaad-cli`](crates/jugaad-cli/) - the `jugaad` command-line binary, built on top of `jugaad-core`
@@ -184,6 +231,13 @@ If that (or `cargo test --workspace --all-features`) intermittently fails with e
 
 - [`docs/cli.md`](docs/cli.md) - full CLI reference, kept in sync with `--help` output
 - [`docs/nse-findings.md`](docs/nse-findings.md) - a running log of undocumented NSE API behavior discovered while building this
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) - in particular, the discipline
+this project cares about most: verify any NSE behavior live before
+writing code around it, rather than inferring it from Python's
+`jugaad-data` source or a single sample response.
 
 ## License
 

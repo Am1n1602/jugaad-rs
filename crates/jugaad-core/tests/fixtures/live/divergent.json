@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "symbol": "BAJAJHLDNG",
+      "series": "EQ",
+      "open_price": 160,
+      "high_price": 161,
+      "low_price": 159,
+      "ltp": 161,
+      "prev_price": 159.46,
+      "net_price": 1.54,
+      "trade_quantity": 100,
+      "turnover": 16.1,
+      "market_type": "N",
+      "ca_ex_dt": "-",
+      "ca_purpose": "-",
+      "perChange": 0.96
+    }
+  ]
+}

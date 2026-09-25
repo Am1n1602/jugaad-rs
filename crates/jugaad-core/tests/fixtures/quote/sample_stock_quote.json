@@ -1,0 +1,73 @@
+{
+  "equityResponse": [
+    {
+      "orderBook": {
+        "buyPrice1": 998,
+        "buyQuantity1": 100,
+        "buyPrice2": 0,
+        "buyQuantity2": 0,
+        "buyPrice3": 0,
+        "buyQuantity3": 0,
+        "buyPrice4": 0,
+        "buyQuantity4": 0,
+        "buyPrice5": 0,
+        "buyQuantity5": 0,
+        "sellPrice1": 999,
+        "sellQuantity1": 50,
+        "sellPrice2": 0,
+        "sellQuantity2": 0,
+        "sellPrice3": 0,
+        "sellQuantity3": 0,
+        "sellPrice4": 0,
+        "sellQuantity4": 0,
+        "sellPrice5": 0,
+        "sellQuantity5": 0,
+        "lastPrice": 996.2,
+        "totalBuyQuantity": 100,
+        "totalSellQuantity": 50,
+        "perBuyQty": 66.6,
+        "perSellQty": 33.3
+      },
+      "metaData": {
+        "identifier": "SBINEQN",
+        "companyName": "State Bank of India",
+        "isinCode": "INE062A01020",
+        "symbol": "SBIN",
+        "series": "EQ",
+        "marketType": "N",
+        "open": 992,
+        "dayHigh": 996.2,
+        "dayLow": 985.1,
+        "previousClose": 988.7,
+        "averagePrice": 991.89,
+        "change": 7.5,
+        "basePrice": 988.7,
+        "closePrice": 996.2,
+        "indicativeClose": 0,
+        "pChange": 0.76
+      },
+      "tradeInfo": {
+        "totalTradedVolume": 5699456,
+        "totalTradedValue": 5653233411.84,
+        "series": "EQ",
+        "lastPrice": 996.2,
+        "issuedSize": 9230766786,
+        "basePrice": 988.7,
+        "faceValue": 1,
+        "deliveryToTradedQuantity": 63.91,
+        "marketLot": null,
+        "quantitytraded": 5699456,
+        "deliveryquantity": 3642518,
+        "totalMarketCap": 9195689872213.2
+      },
+      "priceInfo": {
+        "yearHightDt": "24-Feb-2026 00:00:00",
+        "yearLowDt": "17-Sep-2025 00:00:00",
+        "yearHigh": 1234.7,
+        "yearLow": 831,
+        "priceBand": "889.90-1087.50"
+      },
+      "lastUpdateTime": "18-Sep-2026 16:00:00"
+    }
+  ]
+}

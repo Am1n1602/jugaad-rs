@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::NaiveDate;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::Semaphore;
 
-use super::USER_AGENT;
 use super::dates::{break_into_month_chunks, sort_by_date_desc};
+use super::http::{HttpClient, client_builder, with_retry};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://niftyindices.com";
@@ -149,13 +149,15 @@ fn build_request_body(
 
 #[derive(Debug, Clone)]
 pub struct NseIndexHistory {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseIndexHistory {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     pub async fn index_history_raw(
@@ -417,7 +419,7 @@ impl NseIndexHistory {
     /// endpoint in this module needs. Callers add their own body/content
     /// type on top - the three discovery endpoints each want something
     /// different (no body, JSON, or form-urlencoded).
-    fn post_request(&self, path: &str) -> reqwest::RequestBuilder {
+    fn post_request(&self, path: &str) -> reqwest_middleware::RequestBuilder {
         self.client
             .post(format!("{BASE_URL}{path}"))
             .header("X-Requested-With", "XMLHttpRequest")
@@ -576,7 +578,7 @@ struct DiscoveryItem {
     indextype: Option<String>,
 }
 
-async fn fetch_discovery_list(request: reqwest::RequestBuilder) -> Result<Vec<String>> {
+async fn fetch_discovery_list(request: reqwest_middleware::RequestBuilder) -> Result<Vec<String>> {
     let response = request.send().await?;
 
     match response.status() {
@@ -631,9 +633,7 @@ mod tests {
     }
 
     // Real response captured from niftyindices for NIFTY 50.
-    const SAMPLE_RESPONSE: &str = r#"[{"RequestNumber":"His639","Index Name":"",
-        "INDEX_NAME":"Nifty 50","HistoricalDate":"05 Aug 2024","OPEN":"24302.85",
-        "HIGH":"24350.05","LOW":"23893.7","CLOSE":"24055.60"}]"#;
+    const SAMPLE_RESPONSE: &str = include_str!("../../tests/fixtures/index/sample_response.json");
 
     #[test]
     fn deserializes_real_response_shape() {
@@ -666,8 +666,8 @@ mod tests {
     // Real response captured from niftyindices' P/E endpoint for NIFTY 50.
     // Note the date field is "DATE" here - "HistoricalDate" for OHLC,
     // "Date" for TRI below. Three different key names, same site.
-    const SAMPLE_PE_RESPONSE: &str = r#"[{"RequestNumber":"pepb639","Index Name":"Nifty 50",
-        "pe":"22.38","pb":"4.05","divYield":"1.22","DATE":"05 Aug 2024"}]"#;
+    const SAMPLE_PE_RESPONSE: &str =
+        include_str!("../../tests/fixtures/index/sample_pe_response.json");
 
     #[test]
     fn deserializes_real_pe_response_shape() {
@@ -681,8 +681,8 @@ mod tests {
     }
 
     // Real response captured from niftyindices' TRI endpoint for NIFTY 50.
-    const SAMPLE_TRI_RESPONSE: &str = r#"[{"RequestNumber":"TRI639","Index Name":"Nifty 50",
-        "Date":"05 Aug 2024","TotalReturnsIndex":"35646.37","NTR_Value":"32209.37"}]"#;
+    const SAMPLE_TRI_RESPONSE: &str =
+        include_str!("../../tests/fixtures/index/sample_tri_response.json");
 
     #[test]
     fn deserializes_real_tri_response_shape() {
@@ -718,17 +718,8 @@ mod tests {
 
     // Real response captured from niftyindices' discovery endpoints - mostly
     // null fields, only `indextype` ever carries the value we want.
-    const SAMPLE_DISCOVERY_RESPONSE: &str = r#"[
-        {"category":null,"title":null,"documentname":null,"downloadUrl":null,
-         "dateofindex":null,"formatdate":null,"TitleName":null,
-         "indextype":"Equity","indexgroup":null,"Date":null},
-        {"category":null,"title":null,"documentname":null,"downloadUrl":null,
-         "dateofindex":null,"formatdate":null,"TitleName":null,
-         "indextype":null,"indexgroup":null,"Date":null},
-        {"category":null,"title":null,"documentname":null,"downloadUrl":null,
-         "dateofindex":null,"formatdate":null,"TitleName":null,
-         "indextype":"Fixed Income","indexgroup":null,"Date":null}
-    ]"#;
+    const SAMPLE_DISCOVERY_RESPONSE: &str =
+        include_str!("../../tests/fixtures/index/sample_discovery_response.json");
 
     #[test]
     fn discovery_items_with_null_indextype_are_filtered_out() {

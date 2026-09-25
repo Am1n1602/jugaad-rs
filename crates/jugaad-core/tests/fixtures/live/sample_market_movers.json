@@ -1,0 +1,65 @@
+{
+  "legends": [
+    [
+      "NIFTY",
+      "NIFTY 50"
+    ]
+  ],
+  "NIFTY": {
+    "data": [
+      {
+        "symbol": "HDFCLIFE",
+        "series": "EQ",
+        "open_price": 551.65,
+        "high_price": 565.9,
+        "low_price": 551.65,
+        "ltp": 562,
+        "prev_price": 550.95,
+        "net_price": 2.01,
+        "trade_quantity": 1822012,
+        "turnover": 10247.7242928,
+        "market_type": "N",
+        "ca_ex_dt": "19-Jun-2026",
+        "ca_purpose": "Dividend - Rs 2.10 Per Share",
+        "perChange": 2.01
+      }
+    ],
+    "timestamp": "21-Sep-2026 13:48:09"
+  },
+  "BANKNIFTY": {
+    "data": [
+      {
+        "symbol": "SBIN",
+        "series": "EQ",
+        "open_price": 992,
+        "high_price": 996.2,
+        "low_price": 985.1,
+        "ltp": 991.4,
+        "prev_price": 988.7,
+        "net_price": 2.7,
+        "trade_quantity": 5699456,
+        "turnover": 5653.23341184,
+        "market_type": "N",
+        "ca_ex_dt": "-",
+        "ca_purpose": "-",
+        "perChange": 0.27
+      }
+    ],
+    "timestamp": "21-Sep-2026 13:48:09"
+  },
+  "NIFTYNEXT50": {
+    "data": []
+  },
+  "SecGtr20": {
+    "data": []
+  },
+  "SecLwr20": {
+    "data": []
+  },
+  "FOSec": {
+    "data": []
+  },
+  "allSec": {
+    "data": []
+  }
+}

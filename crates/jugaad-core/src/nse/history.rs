@@ -3,12 +3,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{Datelike, NaiveDate};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 
-use super::USER_AGENT;
 use super::dates::{break_into_month_chunks, deserialize_nse_date, sort_by_date_desc};
+use super::http::{HttpClient, client_builder, with_retry};
 use crate::error::{Error, Result};
 
 const BASE_URL: &str = "https://www.nseindia.com";
@@ -206,7 +206,7 @@ struct DerivativeHistoryResponse {
 
 #[derive(Debug, Clone)]
 pub struct NseHistory {
-    client: Client,
+    client: HttpClient,
     // Tracks whether the cookie warm-up GET has run yet. `&self` methods
     // can't normally mutate fields, but an atomic can be flipped through a
     // shared reference safely - see `fetch_chunk` below. Wrapped in `Arc` so
@@ -217,12 +217,9 @@ pub struct NseHistory {
 
 impl NseHistory {
     pub fn new() -> Result<Self> {
-        let client = Client::builder()
-            .user_agent(USER_AGENT)
-            .cookie_store(true)
-            .build()?;
+        let client = client_builder().cookie_store(true).build()?;
         Ok(Self {
-            client,
+            client: with_retry(client),
             warmed_up: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -541,13 +538,7 @@ mod tests {
     }
 
     // Real response captured from NSE's historicalOR API for SBIN.
-    const SAMPLE_RESPONSE: &str = r#"{"data":[{"CH_SYMBOL":"SBIN","CH_SERIES":"EQ",
-        "mTIMESTAMP":"05-Aug-2024","CH_PREVIOUS_CLS_PRICE":847.85,"CH_OPENING_PRICE":830,
-        "CH_TRADE_HIGH_PRICE":831.35,"CH_TRADE_LOW_PRICE":800,"CH_LAST_TRADED_PRICE":810,
-        "CH_CLOSING_PRICE":811.65,"VWAP":815.37,"CH_TOT_TRADED_QTY":27676951,
-        "CH_TOT_TRADED_VAL":22567000834,"CH_TOTAL_TRADES":539085,
-        "CH_TIMESTAMP":"2024-08-04T18:30:00.000Z","COP_DELIV_QTY":12248505,
-        "COP_DELIV_PERC":44.26}]}"#;
+    const SAMPLE_RESPONSE: &str = include_str!("../../tests/fixtures/history/sample_response.json");
 
     #[test]
     fn deserializes_real_nse_response_shape() {
@@ -562,13 +553,8 @@ mod tests {
 
     // Older records (and some series) don't have this field at all - NSE
     // sends it back as JSON `null` rather than omitting the key.
-    const SAMPLE_RESPONSE_MISSING_TRADES: &str = r#"{"data":[{"CH_SYMBOL":"SBIN","CH_SERIES":"EQ",
-        "mTIMESTAMP":"05-Jan-2010","CH_PREVIOUS_CLS_PRICE":2291.2,"CH_OPENING_PRICE":2308,
-        "CH_TRADE_HIGH_PRICE":2310,"CH_TRADE_LOW_PRICE":2280.1,"CH_LAST_TRADED_PRICE":2294,
-        "CH_CLOSING_PRICE":2292.05,"VWAP":2292.78,"CH_TOT_TRADED_QTY":1161374,
-        "CH_TOT_TRADED_VAL":2662775673.75,"CH_TOTAL_TRADES":null,
-        "CH_TIMESTAMP":"2010-01-04T18:30:00.000Z","COP_DELIV_QTY":522468,
-        "COP_DELIV_PERC":44.99}]}"#;
+    const SAMPLE_RESPONSE_MISSING_TRADES: &str =
+        include_str!("../../tests/fixtures/history/sample_response_missing_trades.json");
 
     #[test]
     fn missing_optional_fields_deserialize_to_none() {
@@ -593,18 +579,8 @@ mod tests {
 
     // Real response captured from NSE for SBIN on 2024-08-19, a day it had
     // both a "T0" (same-day-settlement trial) row and a normal "EQ" row.
-    const SAMPLE_RESPONSE_MULTIPLE_SERIES: &str = r#"{"data":[
-        {"CH_SYMBOL":"SBIN","CH_SERIES":"T0","mTIMESTAMP":"19-Aug-2024",
-        "CH_PREVIOUS_CLS_PRICE":812.1,"CH_OPENING_PRICE":820,"CH_TRADE_HIGH_PRICE":820,
-        "CH_TRADE_LOW_PRICE":820,"CH_LAST_TRADED_PRICE":820,"CH_CLOSING_PRICE":813.7,
-        "VWAP":820,"CH_TOT_TRADED_QTY":1,"CH_TOT_TRADED_VAL":820,"CH_TOTAL_TRADES":1,
-        "CH_TIMESTAMP":"2024-08-18T18:30:00.000Z","COP_DELIV_QTY":1,"COP_DELIV_PERC":100},
-        {"CH_SYMBOL":"SBIN","CH_SERIES":"EQ","mTIMESTAMP":"19-Aug-2024",
-        "CH_PREVIOUS_CLS_PRICE":812.1,"CH_OPENING_PRICE":815,"CH_TRADE_HIGH_PRICE":825.4,
-        "CH_TRADE_LOW_PRICE":812.6,"CH_LAST_TRADED_PRICE":814.6,"CH_CLOSING_PRICE":813.7,
-        "VWAP":817.66,"CH_TOT_TRADED_QTY":10151482,"CH_TOT_TRADED_VAL":8300440391.9,
-        "CH_TOTAL_TRADES":174502,"CH_TIMESTAMP":"2024-08-18T18:30:00.000Z",
-        "COP_DELIV_QTY":2595511,"COP_DELIV_PERC":25.57}]}"#;
+    const SAMPLE_RESPONSE_MULTIPLE_SERIES: &str =
+        include_str!("../../tests/fixtures/history/sample_response_multiple_series.json");
 
     #[test]
     fn filter_by_series_keeps_only_the_requested_series() {
@@ -642,15 +618,8 @@ mod tests {
     }
 
     // Real response captured from NSE for NIFTY index futures (FUTIDX).
-    const SAMPLE_FUTIDX_RESPONSE: &str = r#"{"data":[{"FH_INSTRUMENT":"FUTIDX",
-        "FH_SYMBOL":"NIFTY","FH_EXPIRY_DT":"26-Dec-2024","FH_STRIKE_PRICE":0,
-        "FH_OPTION_TYPE":"XX","FH_MARKET_TYPE":"N","FH_OPENING_PRICE":24597,
-        "FH_TRADE_HIGH_PRICE":24930,"FH_TRADE_LOW_PRICE":24396,"FH_CLOSING_PRICE":24764.35,
-        "FH_LAST_TRADED_PRICE":24775.35,"FH_PREV_CLS":24561.7,"FH_SETTLE_PRICE":24764.35,
-        "FH_TOT_TRADED_QTY":12468000,"FH_TOT_TRADED_VAL":3078866.77,"FH_OPEN_INT":11174400,
-        "FH_CHANGE_IN_OI":-376650,"FH_MARKET_LOT":25,"FH_TIMESTAMP":"05-Dec-2024",
-        "FH_TIMESTAMP_ORDER":"2024-12-04T18:30:00.000Z","FH_UNDERLYING_VALUE":null,
-        "CALCULATED_PREMIUM_VAL":3078866.77}]}"#;
+    const SAMPLE_FUTIDX_RESPONSE: &str =
+        include_str!("../../tests/fixtures/history/sample_futidx_response.json");
 
     #[test]
     fn deserializes_real_futures_response_shape() {
@@ -670,15 +639,8 @@ mod tests {
     }
 
     // Real response captured from NSE for RELIANCE stock futures (FUTSTK).
-    const SAMPLE_FUTSTK_RESPONSE: &str = r#"{"data":[{"FH_INSTRUMENT":"FUTSTK",
-        "FH_SYMBOL":"RELIANCE","FH_EXPIRY_DT":"26-Dec-2024","FH_STRIKE_PRICE":0,
-        "FH_OPTION_TYPE":"XX","FH_MARKET_TYPE":"N","FH_OPENING_PRICE":1319.75,
-        "FH_TRADE_HIGH_PRICE":1334.7,"FH_TRADE_LOW_PRICE":1310.8,"FH_CLOSING_PRICE":1326.75,
-        "FH_LAST_TRADED_PRICE":1325.55,"FH_PREV_CLS":1315.35,"FH_SETTLE_PRICE":1326.75,
-        "FH_TOT_TRADED_QTY":32970000,"FH_TOT_TRADED_VAL":436858.24,"FH_OPEN_INT":160645000,
-        "FH_CHANGE_IN_OI":-4710000,"FH_MARKET_LOT":500,"FH_TIMESTAMP":"05-Dec-2024",
-        "FH_TIMESTAMP_ORDER":"2024-12-04T18:30:00.000Z","FH_UNDERLYING_VALUE":1322.05,
-        "CALCULATED_PREMIUM_VAL":436858.24}]}"#;
+    const SAMPLE_FUTSTK_RESPONSE: &str =
+        include_str!("../../tests/fixtures/history/sample_futstk_response.json");
 
     #[test]
     fn underlying_value_is_populated_for_stock_instruments() {

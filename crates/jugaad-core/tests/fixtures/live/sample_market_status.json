@@ -1,0 +1,43 @@
+{
+  "marketState": [
+    {
+      "market": "Capital Market",
+      "marketStatus": "Closed",
+      "tradeDate": "18-Sep-2026 15:30",
+      "index": "NIFTY 50",
+      "last": 23346.4,
+      "variation": 75.80000000000291,
+      "percentChange": 0.33,
+      "marketStatusMessage": "Normal Market has Closed"
+    },
+    {
+      "market": "Commodity",
+      "marketStatus": "Open",
+      "tradeDate": "18-Sep-2026",
+      "index": "",
+      "last": "",
+      "variation": "",
+      "percentChange": "",
+      "marketStatusMessage": "Market is Open"
+    },
+    {
+      "index": "NIFTY50 USD",
+      "last": 8435.8,
+      "change": 31.090000000000146,
+      "percentChange": 0.37,
+      "timestamp": "18-Sep-2026 15:39"
+    },
+    {
+      "market": "currencyfuture",
+      "marketStatus": "Closed",
+      "tradeDate": "18-Sep-2026",
+      "index": "",
+      "last": "95.9600",
+      "variation": "",
+      "percentChange": "",
+      "marketStatusMessage": "Market is Closed",
+      "expiryDate": "28-Sep-2026",
+      "underlying": "USDINR"
+    }
+  ]
+}

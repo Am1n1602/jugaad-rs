@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "name": "Equities",
+      "yesterday": {
+        "volume": 3528797247,
+        "value": 1107796241968.77,
+        "openInterest": 0
+      },
+      "today": {}
+    },
+    {
+      "name": null,
+      "yesterday": {
+        "volume": 0,
+        "value": 3688914932.47,
+        "openInterest": 0
+      },
+      "today": {}
+    }
+  ]
+}

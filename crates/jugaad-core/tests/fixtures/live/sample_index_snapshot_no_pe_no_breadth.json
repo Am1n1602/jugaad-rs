@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "key": "STRATEGY INDICES",
+      "index": "NIFTY50 USD",
+      "indexSymbol": "NIFTY50 USD",
+      "last": 8435.8,
+      "variation": 31.09,
+      "percentChange": 0.37,
+      "open": 8404.7,
+      "high": 8483.2,
+      "low": 8404.05,
+      "previousClose": 8404.71,
+      "yearHigh": 0,
+      "yearLow": 0,
+      "indicativeClose": 0,
+      "pe": "",
+      "pb": "",
+      "dy": ""
+    }
+  ]
+}

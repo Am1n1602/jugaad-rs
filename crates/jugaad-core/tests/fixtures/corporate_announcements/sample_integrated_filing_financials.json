@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "attFileSize": "0 Bytes",
+      "audited": "Un-Audited",
+      "broadcast_Date": "23-Sep-2026 19:18:03",
+      "cmName": "Winsome Yarns Limited",
+      "consolidated": "Standalone",
+      "creation_Date": "23-Sep-2026 19:19:30",
+      "diff": "00:01:27",
+      "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_195779_23092026191929_iXBRL_WEB.html",
+      "ixbrlFileSize": "45.93 KB",
+      "pdf_attach": "https://nsearchives.nseindia.com/corporate/null",
+      "qe_Date": "30-JUN-2026",
+      "revised_Date": null,
+      "revision_Remark": null,
+      "seq_Id": "195779",
+      "smName": "Winsome Yarns Limited",
+      "symbol": "WINSOME",
+      "type": "Integrated Filing- Financials",
+      "type_Sub": "Original",
+      "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_1727118_23092026071929_WEB.xml",
+      "xbrlFileSize": "19.92 KB"
+    }
+  ],
+  "size": 5,
+  "page": 0,
+  "totalCount": 26772
+}

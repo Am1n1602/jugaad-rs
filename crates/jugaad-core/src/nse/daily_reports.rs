@@ -11,11 +11,11 @@
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use serde::Deserialize;
 
-use super::USER_AGENT;
 use super::dates::deserialize_nse_date;
+use super::http::{HttpClient, client_builder, with_retry};
 use crate::error::{Error, Result};
 
 const METADATA_URL: &str = "https://www.nseindia.com/api/daily-reports";
@@ -72,13 +72,15 @@ pub struct ReportDate {
 
 #[derive(Debug, Clone)]
 pub struct NseDailyReports {
-    client: Client,
+    client: HttpClient,
 }
 
 impl NseDailyReports {
     pub fn new() -> Result<Self> {
-        let client = Client::builder().user_agent(USER_AGENT).build()?;
-        Ok(Self { client })
+        let client = client_builder().build()?;
+        Ok(Self {
+            client: with_retry(client),
+        })
     }
 
     /// Lists every report type NSE currently offers for `segment` (e.g.
@@ -213,19 +215,8 @@ mod tests {
     }
 
     // Real response shape captured from NSE's daily-reports API for CM.
-    const SAMPLE_RESPONSE: &str = r#"{"PreviousDay":[
-        {"fileHashKey":"CM-UDIFF-BHAVCOPY-CSV-1","fileKey":"CM-UDIFF-BHAVCOPY-CSV",
-         "fileSegment":"CM","displayName":"CM-UDiFF Common Bhavcopy Final (zip)",
-         "fileActlName":"BhavCopy_NSE_CM_0_0_0_20260917_F_0000.csv.zip",
-         "filePath":"https://nsearchives.nseindia.com//content/cm/",
-         "tradingDate":"17-Sep-2026","filePosition":30,"fileSize":"199.20 KB"}
-    ],"CurrentDay":[
-        {"fileHashKey":"CM-UDIFF-BHAVCOPY-CSV-2","fileKey":"CM-UDIFF-BHAVCOPY-CSV",
-         "fileSegment":"CM","displayName":"CM-UDiFF Common Bhavcopy Final (zip)",
-         "fileActlName":"BhavCopy_NSE_CM_0_0_0_20260918_F_0000.csv.zip",
-         "filePath":"https://nsearchives.nseindia.com//content/cm/",
-         "tradingDate":"18-Sep-2026","filePosition":30,"fileSize":"200.14 KB"}
-    ],"FutureDay":[],"currentDate":"18-Sep-2026","previousDate":"17-Sep-2026","futureDate":""}"#;
+    const SAMPLE_RESPONSE: &str =
+        include_str!("../../tests/fixtures/daily_reports/sample_response.json");
 
     #[test]
     fn deserializes_real_response_shape() {
@@ -238,7 +229,8 @@ mod tests {
     }
 
     // An unknown `segment` gets this shape instead - confirmed live.
-    const SAMPLE_INVALID_SEGMENT_RESPONSE: &str = r#"{"data":[],"msg":"no data found"}"#;
+    const SAMPLE_INVALID_SEGMENT_RESPONSE: &str =
+        include_str!("../../tests/fixtures/daily_reports/sample_invalid_segment_response.json");
 
     #[test]
     fn invalid_segment_shape_deserializes_to_empty_lists() {

@@ -1,0 +1,22 @@
+{
+  "CM": [
+    {
+      "tradingDate": "26-Jan-2026",
+      "weekDay": "Monday",
+      "description": "Republic Day",
+      "morning_session": null,
+      "evening_session": null,
+      "Sr_no": 2
+    }
+  ],
+  "COM": [
+    {
+      "tradingDate": "01-Jan-2026",
+      "weekDay": "Thursday",
+      "description": "New year",
+      "morning_session": "Open",
+      "evening_session": "Closed",
+      "Sr_no": 1
+    }
+  ]
+}

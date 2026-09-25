@@ -4,6 +4,7 @@ pub mod corporate_results;
 pub mod daily_reports;
 mod dates;
 pub mod history;
+mod http;
 pub mod index;
 pub mod live;
 pub mod quote;

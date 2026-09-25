@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "change": 16.4,
+      "comapnyName": "Hero Motors Limited",
+      "ltp": 98.4,
+      "new52WHL": 80.5,
+      "pChange": 20,
+      "prev52WHL": 0,
+      "prevClose": "84",
+      "prevHLDate": "-",
+      "series": "EQ",
+      "symbol": "HEROMOTORS"
+    }
+  ]
+}

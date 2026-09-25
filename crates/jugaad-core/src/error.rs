@@ -6,6 +6,9 @@ pub enum Error {
     #[error("network request failed: {0}")]
     Http(#[from] reqwest::Error),
 
+    #[error("network request failed: {0}")]
+    HttpRetry(#[from] reqwest_middleware::Error),
+
     #[error("NSE refused the request, reason can be bot protection or an invalid session")]
     Blocked,
 
