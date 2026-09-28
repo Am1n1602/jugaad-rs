@@ -1455,6 +1455,7 @@ name = "jugaad-rpc"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "jugaad-core",
  "prost",
  "protoc-bin-vendored",

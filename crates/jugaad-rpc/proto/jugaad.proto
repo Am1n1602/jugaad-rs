@@ -13,6 +13,34 @@ service Jugaad {
   // Streams a stock's live quote, re-fetching every `interval_seconds`
   // (default 3 if unset) until the client disconnects.
   rpc WatchStockQuote(WatchStockQuoteRequest) returns (stream StockQuote);
+
+  // Daily OHLC/volume/delivery history for a stock over a date range.
+  rpc GetStockHistory(StockHistoryRequest) returns (StockHistoryResponse);
+
+  // Daily OHLC history for an NSE index (e.g. "NIFTY 50") over a date range.
+  rpc GetIndexHistory(IndexHistoryRequest) returns (IndexHistoryResponse);
+
+  // Live snapshot of every NSE index (price/change, day + 52w range,
+  // valuation ratios, market breadth) - covers NIFTY 50, NIFTY BANK,
+  // SENSEX-equivalent and India VIX in one call.
+  rpc GetIndexSnapshot(IndexSnapshotRequest) returns (IndexSnapshotResponse);
+
+  // Today's bulk/short/block deals - the nearest NSE equivalent of a daily
+  // short-sale-volume file.
+  rpc GetLargeDeals(LargeDealsRequest) returns (LargeDealsResponse);
+
+  // Live open/closed status per market segment (Capital Market, Currency,
+  // Commodity, Debt), holiday-aware unlike a client-computed IST clock.
+  rpc GetMarketStatus(MarketStatusRequest) returns (MarketStatusResponse);
+
+  // Option chain for an index (NIFTY/BANKNIFTY/FINNIFTY) or equity symbol.
+  rpc GetOptionChain(OptionChainRequest) returns (OptionChainResponse);
+
+  // Corporate announcements/disclosures for a segment (and optionally one
+  // symbol) over a date range - general exchange disclosures, not
+  // specifically SEBI insider-trading filings (no confirmed NSE endpoint
+  // for those yet).
+  rpc GetCorporateAnnouncements(CorporateAnnouncementsRequest) returns (CorporateAnnouncementsResponse);
 }
 
 message StockQuoteRequest {
@@ -59,4 +87,200 @@ message StockQuote {
   optional double delivery_pct = 18;
   OrderBook order_book = 19;
   string last_update_time = 20;
+}
+
+// ---- stock/index history ----
+
+message StockHistoryRequest {
+  string symbol = 1;
+  string from_date = 2; // "YYYY-MM-DD"
+  string to_date = 3;   // "YYYY-MM-DD"
+  // NSE's series filter - defaults to "ALL" server-side if unset, which is
+  // what stock_history_raw itself recommends over "EQ" (see jugaad-core's
+  // docs/nse-findings.md: "EQ" alone gives incomplete results).
+  optional string series = 4;
+}
+
+message StockHistoryRow {
+  string symbol = 1;
+  string series = 2;
+  string date = 3; // "YYYY-MM-DD"
+  double open = 4;
+  double high = 5;
+  double low = 6;
+  double previous_close = 7;
+  double last_traded_price = 8;
+  double close = 9;
+  double vwap = 10;
+  uint64 volume = 11;
+  double value = 12;
+  optional uint64 trades = 13;
+  optional uint64 delivery_quantity = 14;
+  optional double delivery_pct = 15;
+}
+
+message StockHistoryResponse {
+  repeated StockHistoryRow rows = 1;
+}
+
+message IndexHistoryRequest {
+  string name = 1; // e.g. "NIFTY 50", "NIFTY BANK"
+  string from_date = 2; // "YYYY-MM-DD"
+  string to_date = 3;   // "YYYY-MM-DD"
+}
+
+message IndexHistoryRow {
+  string index_name = 1;
+  string date = 2; // "YYYY-MM-DD"
+  double open = 3;
+  double high = 4;
+  double low = 5;
+  double close = 6;
+}
+
+message IndexHistoryResponse {
+  repeated IndexHistoryRow rows = 1;
+}
+
+// ---- live index snapshot (macro widget) ----
+
+message IndexSnapshotRequest {}
+
+message IndexSnapshotRow {
+  string category = 1;
+  string name = 2;
+  string symbol = 3;
+  double last = 4;
+  double change = 5;
+  double percent_change = 6;
+  double open = 7;
+  double high = 8;
+  double low = 9;
+  double previous_close = 10;
+  double year_high = 11;
+  double year_low = 12;
+  optional double pe = 13;
+  optional double pb = 14;
+  optional double div_yield = 15;
+  optional uint32 advances = 16;
+  optional uint32 declines = 17;
+  optional uint32 unchanged = 18;
+}
+
+message IndexSnapshotResponse {
+  repeated IndexSnapshotRow rows = 1;
+}
+
+// ---- large deals: bulk/short/block (short-volume widget equivalent) ----
+
+message LargeDealsRequest {}
+
+message LargeDealRow {
+  string deal_type = 1; // "bulk" | "short" | "block"
+  string symbol = 2;
+  string company_name = 3;
+  optional string client_name = 4;
+  optional string buy_sell = 5;
+  uint64 quantity = 6;
+  optional double weighted_avg_price = 7;
+  optional string remarks = 8;
+  string date = 9; // "YYYY-MM-DD"
+}
+
+message LargeDealsResponse {
+  repeated LargeDealRow rows = 1;
+}
+
+// ---- market status (holiday-aware NSE open/closed) ----
+
+message MarketStatusRequest {}
+
+message MarketSegmentStatus {
+  string market = 1;
+  string status = 2;
+  string trade_date = 3;
+  optional string index = 4;
+  optional string last = 5;
+  optional string change = 6;
+  optional string percent_change = 7;
+  string status_message = 8;
+}
+
+message MarketStatusResponse {
+  repeated MarketSegmentStatus segments = 1;
+}
+
+// ---- option chain ----
+
+enum OptionChainKind {
+  OPTION_CHAIN_KIND_UNSPECIFIED = 0;
+  OPTION_CHAIN_KIND_INDEX = 1;
+  OPTION_CHAIN_KIND_EQUITY = 2;
+}
+
+message OptionChainRequest {
+  string symbol = 1;
+  OptionChainKind kind = 2;
+  // "YYYY-MM-DD"; nearest available expiry is looked up server-side if unset.
+  optional string expiry = 3;
+}
+
+message OptionLeg {
+  optional string identifier = 1;
+  double last_price = 2;
+  double change = 3;
+  double percent_change = 4;
+  uint64 open_interest = 5;
+  int64 change_in_open_interest = 6;
+  double percent_change_in_open_interest = 7;
+  uint64 total_traded_volume = 8;
+  double implied_volatility = 9;
+  double buy_price = 10;
+  uint64 buy_quantity = 11;
+  double sell_price = 12;
+  uint64 sell_quantity = 13;
+  uint64 total_buy_quantity = 14;
+  uint64 total_sell_quantity = 15;
+  double underlying_value = 16;
+}
+
+message OptionChainRow {
+  double strike_price = 1;
+  string expiry = 2; // "YYYY-MM-DD"
+  // Absent when NSE has no real contract for this strike/side.
+  OptionLeg call = 3;
+  OptionLeg put = 4;
+}
+
+message OptionChainResponse {
+  repeated OptionChainRow rows = 1;
+}
+
+// ---- corporate announcements (best-effort Insider-widget signal) ----
+
+message CorporateAnnouncementsRequest {
+  // NSE's "index" query param: "equities", "sme", "debt", "mf",
+  // "invitsreits" or "municipalBond".
+  string segment = 1;
+  optional string symbol = 2;
+  string from_date = 3; // "YYYY-MM-DD"
+  string to_date = 4;   // "YYYY-MM-DD"
+}
+
+message CorporateAnnouncementRow {
+  optional string symbol = 1;
+  optional string isin = 2;
+  string company_name = 3;
+  string category = 4;
+  string description = 5;
+  optional string industry = 6;
+  bool has_xbrl = 7;
+  optional string attachment_url = 8;
+  optional string file_size = 9;
+  string announcement_time = 10; // ISO 8601
+  uint64 sequence_id = 11;
+}
+
+message CorporateAnnouncementsResponse {
+  repeated CorporateAnnouncementRow rows = 1;
 }
