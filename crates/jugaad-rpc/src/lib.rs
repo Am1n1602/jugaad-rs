@@ -23,9 +23,9 @@ use jugaad::{
     IndexHistoryRequest, IndexHistoryResponse, IndexHistoryRow, IndexSnapshotRequest,
     IndexSnapshotResponse, IndexSnapshotRow, LargeDealRow, LargeDealsRequest, LargeDealsResponse,
     MarketSegmentStatus, MarketStatusRequest, MarketStatusResponse, OptionChainKind,
-    OptionChainRequest, OptionChainResponse, OptionChainRow, OptionLeg, OrderBook, OrderBookLevel,
-    StockHistoryRequest, StockHistoryResponse, StockHistoryRow, StockQuote, StockQuoteRequest,
-    WatchStockQuoteRequest,
+    OptionChainRequest, OptionChainResponse, OptionChainRow, OptionExpiriesRequest,
+    OptionExpiriesResponse, OptionLeg, OrderBook, OrderBookLevel, StockHistoryRequest,
+    StockHistoryResponse, StockHistoryRow, StockQuote, StockQuoteRequest, WatchStockQuoteRequest,
 };
 
 const DEFAULT_WATCH_INTERVAL_SECS: u64 = 3;
@@ -396,6 +396,24 @@ impl Jugaad for JugaadService {
             .map_err(to_status)?;
         Ok(Response::new(OptionChainResponse {
             rows: rows.into_iter().map(option_chain_row_to_proto).collect(),
+        }))
+    }
+
+    async fn get_option_expiries(
+        &self,
+        request: Request<OptionExpiriesRequest>,
+    ) -> Result<Response<OptionExpiriesResponse>, Status> {
+        let symbol = request.into_inner().symbol;
+        let expiries = self
+            .quote
+            .option_expiries_raw(&symbol)
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(OptionExpiriesResponse {
+            expiries: expiries
+                .into_iter()
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .collect(),
         }))
     }
 

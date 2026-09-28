@@ -1706,6 +1706,41 @@ impl NseQuote {
         write_csv(&csv_rows, &path)
     }
 
+    /// Every available expiry date for `symbol`'s option chain, in NSE's
+    /// own order (nearest first) - lets a caller list expiries rather than
+    /// only resolve the nearest one the way `option_chain_raw` does
+    /// internally when `expiry` is `None`. An unknown symbol has no expiry
+    /// dates at all - confirmed live, same as `nearest_expiry` below,
+    /// which this method's body replaces (kept as a thin wrapper since
+    /// `option_chain_raw` only ever needs the first date).
+    pub async fn option_expiries_raw(&self, symbol: &str) -> Result<Vec<NaiveDate>> {
+        let response = self
+            .client
+            .get(format!("{BASE_URL}/api/option-chain-contract-info"))
+            .query(&[("symbol", symbol)])
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {}
+            StatusCode::FORBIDDEN => return Err(Error::Blocked),
+            status => return Err(Error::UnexpectedStatus(status)),
+        }
+
+        let parsed: ContractInfo = response.json().await.map_err(|e| {
+            Error::Parse(format!("could not parse option chain contract info: {e}"))
+        })?;
+
+        parsed
+            .expiry_dates
+            .iter()
+            .map(|d| {
+                NaiveDate::parse_from_str(d, "%d-%b-%Y")
+                    .map_err(|e| Error::Parse(format!("could not parse expiry date '{d}': {e}")))
+            })
+            .collect()
+    }
+
     /// Fetches a currency pair's option chain (defaults to `"USDINR"` in
     /// Python; the caller passes it explicitly here).
     pub async fn currency_option_chain_raw(
@@ -1746,34 +1781,18 @@ impl NseQuote {
         write_csv(&csv_rows, &path)
     }
 
-    /// Looks up the nearest expiry date for `symbol` via
-    /// `option-chain-contract-info`, for `option_chain_raw` callers that
-    /// don't specify one. An unknown symbol has no expiry dates at all -
-    /// confirmed live - which surfaces here as `Error::NotFound`.
+    /// Looks up the nearest expiry date for `symbol`, for `option_chain_raw`
+    /// callers that don't specify one. An unknown symbol has no expiry
+    /// dates at all - confirmed live - which surfaces here as
+    /// `Error::NotFound`.
     async fn nearest_expiry(&self, symbol: &str) -> Result<NaiveDate> {
-        let response = self
-            .client
-            .get(format!("{BASE_URL}/api/option-chain-contract-info"))
-            .query(&[("symbol", symbol)])
-            .send()
-            .await?;
-
-        match response.status() {
-            StatusCode::OK => {}
-            StatusCode::FORBIDDEN => return Err(Error::Blocked),
-            status => return Err(Error::UnexpectedStatus(status)),
-        }
-
-        let parsed: ContractInfo = response.json().await.map_err(|e| {
-            Error::Parse(format!("could not parse option chain contract info: {e}"))
-        })?;
-
-        let first = parsed.expiry_dates.first().ok_or_else(|| {
-            Error::NotFound(format!("no option chain contracts for symbol '{symbol}'"))
-        })?;
-
-        NaiveDate::parse_from_str(first, "%d-%b-%Y")
-            .map_err(|e| Error::Parse(format!("could not parse expiry date '{first}': {e}")))
+        self.option_expiries_raw(symbol)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Error::NotFound(format!("no option chain contracts for symbol '{symbol}'"))
+            })
     }
 
     /// Fetches a symbol's regulatory/compliance status. Returns an empty

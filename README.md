@@ -44,6 +44,7 @@ A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a P
 | Stock intraday/historical price chart | `NseQuote::stock_chart_data_raw`/`stock_chart_data_csv` |
 | Index intraday/historical price chart | `NseQuote::index_chart_data_raw`/`index_chart_data_csv` |
 | Index/equity option chain | `NseQuote::option_chain_raw`/`option_chain_csv` |
+| Every available expiry date for a symbol's option chain | `NseQuote::option_expiries_raw` |
 | Currency pair option chain | `NseQuote::currency_option_chain_raw`/`currency_option_chain_csv` |
 | Financial-results filings (equities/sme only) + XBRL/HTML download | `NseCorporateResults::financial_results_raw`/`financial_results_csv`/`download_xbrl_raw`/`download_xbrl_save`/`download_result_html_raw`/`download_result_html_save` |
 | Corporate announcements (equities/sme/debt/mf/invitsreits/municipalBond) | `NseCorporateAnnouncements::corporate_announcements_raw`/`corporate_announcements_csv` |

@@ -36,6 +36,12 @@ service Jugaad {
   // Option chain for an index (NIFTY/BANKNIFTY/FINNIFTY) or equity symbol.
   rpc GetOptionChain(OptionChainRequest) returns (OptionChainResponse);
 
+  // Every available expiry date for a symbol's option chain, nearest
+  // first - GetOptionChain only ever resolves one expiry per call (the
+  // nearest one, or the one requested), so a caller wanting a picker of
+  // upcoming dates needs this first.
+  rpc GetOptionExpiries(OptionExpiriesRequest) returns (OptionExpiriesResponse);
+
   // Corporate announcements/disclosures for a segment (and optionally one
   // symbol) over a date range - general exchange disclosures, not
   // specifically SEBI insider-trading filings (no confirmed NSE endpoint
@@ -254,6 +260,14 @@ message OptionChainRow {
 
 message OptionChainResponse {
   repeated OptionChainRow rows = 1;
+}
+
+message OptionExpiriesRequest {
+  string symbol = 1;
+}
+
+message OptionExpiriesResponse {
+  repeated string expiries = 1; // "YYYY-MM-DD", nearest first
 }
 
 // ---- corporate announcements (best-effort Insider-widget signal) ----
