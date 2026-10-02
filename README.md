@@ -2,8 +2,18 @@
 
 [![CI](https://github.com/Am1n1602/jugaad-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Am1n1602/jugaad-rs/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Am1n1602/jugaad-rs)](https://github.com/Am1n1602/jugaad-rs/releases/latest)
+[![PyPI](https://img.shields.io/pypi/v/sauda)](https://pypi.org/project/sauda/)
 
 A Rust rewrite of [`jugaad-data`](https://github.com/jugaad-py/jugaad-data), a Python library for downloading historical and live market data from NSE (National Stock Exchange of India). This project follows the same behavior where it makes sense, but is written idiomatically in Rust rather than as a line-by-line port - see [`docs/nse-findings.md`](docs/nse-findings.md) for the API details this rewrite has had to work out from scratch, since NSE's endpoints have no official documentation.
+
+## Ways to use it
+
+| You want | Use | Get it |
+|---|---|---|
+| A command-line tool that saves CSVs | the `jugaad` CLI | a [prebuilt binary](https://github.com/Am1n1602/jugaad-rs/releases/latest) (Linux, macOS, Windows), or [build from source](#building) |
+| NSE data inside a Rust program | the `jugaad-core` library | a git or path dependency - see [Using it as a library](#using-it-as-a-library) |
+| NSE data in Python | [`sauda`](python/MANUAL.md) | `pip install sauda` |
+| NSE data from any other language | the `jugaad-rpc` gRPC server | `docker run -p 50051:50051 ghcr.io/am1n1602/jugaad-rpc:latest` - see [Python and other languages](#python-and-other-languages) |
 
 ## What's implemented
 
@@ -58,10 +68,9 @@ An optional `dataframe` Cargo feature adds `jugaad_core::dataframe::to_dataframe
 
 `NseCorporateResults` only supports the `equities` and `sme` segments - confirmed live, NSE's `insurance` and `reitsinvits` segments return a completely different, incompatible response shape through the same endpoint (not a documentation gap, a real schema difference), and `debt` returned no data in testing. See [`docs/nse-findings.md`](docs/nse-findings.md#corporates-financial-results) for the full breakdown.
 
-The live/quote endpoints above were built while NSE's market was closed, then spot-checked again live with the market genuinely open (2026-09-21) - order book depth and index values do populate/move as expected; `market-turnover`'s same-day figures and the Currency/Commodity/Debt segments' snapshot values turned out to just never populate through these endpoints, open market or not, which is now confirmed rather than assumed. See [`docs/nse-findings.md`](docs/nse-findings.md#market-hours-retest-2026-09-21-market-genuinely-open) for the full rundown.
+Known data gaps: `market-turnover`'s same-day figures and the Currency/Commodity/Debt segments' snapshot values never populate through NSE's endpoints, even with the market open (confirmed live on 2026-09-21; order book depth and index values do move as expected). See [`docs/nse-findings.md`](docs/nse-findings.md#market-hours-retest-2026-09-21-market-genuinely-open).
 
-Per-symbol live quotes and option chains are **not** behind Akamai bot detection, contrary to what an earlier version of this README claimed - NSE had just moved those endpoints to different URLs than the ones first tried here. See [`docs/nse-findings.md`](docs/nse-findings.md) for the full story.
-
+Per-symbol live quotes and option chains are not behind NSE's Akamai bot detection. See [`docs/nse-findings.md`](docs/nse-findings.md) for the endpoint details.
 
 ## Not implemented
 
@@ -69,7 +78,7 @@ Per-symbol live quotes and option chains are **not** behind Akamai bot detection
 
 ## Requirements
 
-- Rust 1.88 or newer (see `rust-toolchain.toml` - `rustup` will pick this up automatically)
+- Rust 1.88 or newer, only to build from source (see `rust-toolchain.toml` - `rustup` will pick this up automatically). Not needed for the prebuilt binaries, the Docker image, or `pip install sauda`.
 
 ## Building
 
@@ -182,6 +191,24 @@ doesn't actually signal would be misleading. Where this applies, it's
 called out in [`docs/nse-findings.md`](docs/nse-findings.md) and in the
 method's own doc comment.
 
+## Python and other languages
+
+`jugaad-rpc` is a gRPC server over `jugaad-core`, so anything that speaks gRPC can use it. It exposes ten RPCs: `GetStockQuote`, `WatchStockQuote` (streaming), `GetStockHistory`, `GetIndexHistory`, `GetIndexSnapshot`, `GetLargeDeals`, `GetMarketStatus`, `GetOptionChain`, `GetOptionExpiries` and `GetCorporateAnnouncements`. The full definitions are in [`jugaad.proto`](crates/jugaad-rpc/proto/jugaad.proto).
+
+**Python:** [`sauda`](python/MANUAL.md) bundles the server binary and starts it for you, so there is nothing else to install or run:
+
+```python
+from sauda import Client
+
+with Client() as c:
+    print(c.stock_quote("SBIN")["last_price"])
+    rows = c.stock_history("SBIN", "2026-09-01", "2026-09-30")
+```
+
+Wheels are published for Windows x64, Linux x86_64 and macOS Apple Silicon, on Python 3.9+. The [manual](python/MANUAL.md) covers every method, the error codes, and troubleshooting.
+
+**Any other language:** run the server from the Docker image above (no Rust toolchain needed), then generate a client from the `.proto`. Working Python and Node.js examples are in [`clients/`](clients/).
+
 ## Project structure
 
 ```mermaid
@@ -190,14 +217,14 @@ graph LR
     Core["jugaad-core\n(library)"]
     Cli["jugaad-cli\n(binary)"]
     Rpc["jugaad-rpc\n(gRPC server)"]
-    Py["Python client"]
-    Node["Node.js client"]
+    Sauda["sauda\n(pip package)"]
+    Clients["Python and Node.js\nexample clients"]
 
     Core -->|HTTPS| NSE
     Cli --> Core
     Rpc --> Core
-    Py -->|gRPC| Rpc
-    Node -->|gRPC| Rpc
+    Sauda -->|bundles, spawns, gRPC| Rpc
+    Clients -->|gRPC| Rpc
 ```
 
 - [`crates/jugaad-core`](crates/jugaad-core/) - the library: NSE client types, request/response handling, error types
@@ -220,6 +247,8 @@ cargo test --workspace
 cargo test -p jugaad-core -- --ignored
 ```
 
+The Python package has its own development flow (`maturin` plus an offline smoke test) - see [`python/README.md`](python/README.md#development).
+
 To test the optional `dataframe` feature specifically:
 
 ```bash
@@ -233,6 +262,8 @@ If that (or `cargo test --workspace --all-features`) intermittently fails with e
 
 - [`docs/cli.md`](docs/cli.md) - full CLI reference, kept in sync with `--help` output
 - [`docs/nse-findings.md`](docs/nse-findings.md) - a running log of undocumented NSE API behavior discovered while building this
+- [`python/MANUAL.md`](python/MANUAL.md) - the manual for the `sauda` Python package
+- [`clients/README.md`](clients/README.md) - example gRPC clients in Python and Node.js
 
 ## Contributing
 
