@@ -7,6 +7,11 @@
 /clients/python/generated/
 /clients/node/node_modules/
 
+# Python package (python/) - generated stubs and build output, not source
+/python/src/sauda/_proto/
+/python/dist/
+__pycache__/
+
 /.cargo/config.toml
 
 /.cache/
