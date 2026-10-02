@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "jugaad-cli"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1435,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "jugaad-core"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "csv",
@@ -1452,7 +1452,7 @@ dependencies = [
 
 [[package]]
 name = "jugaad-rpc"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "chrono",
