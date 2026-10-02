@@ -1,6 +1,6 @@
 # sauda
 
-NSE market data for Python. A thin client over [`jugaad-rpc`](../crates/jugaad-rpc), the Rust gRPC server from the [jugaad-rs](https://github.com/Am1n1602/jugaad-rs) monorepo - the wheel bundles the server binary, so there is nothing else to install or run.
+NSE market data for Python. A thin client over [`jugaad-rpc`](https://github.com/Am1n1602/jugaad-rs/tree/main/crates/jugaad-rpc), the Rust gRPC server from the [jugaad-rs](https://github.com/Am1n1602/jugaad-rs) monorepo - the wheel bundles the server binary, so there is nothing else to install or run.
 
 ```python
 from sauda import Client
