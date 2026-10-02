@@ -5,6 +5,11 @@ name: Python package
 on:
   push:
     tags: ["py-v*"]
+  pull_request:
+    paths:
+      - "python/**"
+      - "crates/jugaad-rpc/**"
+      - ".github/workflows/python-publish.yml"
   workflow_dispatch:
 
 permissions:
