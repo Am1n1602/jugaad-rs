@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "sauda"
-version = "0.1.1"
+version = "0.1.2"
 description = "NSE market data for Python, backed by a bundled Rust gRPC server"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -19,6 +19,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/Am1n1602/jugaad-rs"
+Documentation = "https://github.com/Am1n1602/jugaad-rs/blob/main/python/MANUAL.md"
 
 [tool.maturin]
 # Ships the jugaad-rpc binary (not a Python extension module) in the wheel's

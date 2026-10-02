@@ -19,12 +19,26 @@ assert d["delivery_quantity"] is None and d["total_market_cap"] is None
 assert d["order_book"]["levels"][0]["buy_price"] == 1.0
 assert _to_py(pb.StockQuote())["order_book"] is None
 
-with Client() as c:
+def expect_invalid(call):
     try:
-        c.stock_history("SBIN", "not-a-date", "2026-01-01")
+        call()
     except grpc.RpcError as e:
         assert e.code() == grpc.StatusCode.INVALID_ARGUMENT, e
     else:
         raise AssertionError("expected INVALID_ARGUMENT")
+
+
+with Client() as c:
+    # Each of these is rejected on its date argument before reaching NSE.
+    expect_invalid(lambda: c.stock_history("SBIN", "not-a-date", "2026-01-01"))
+    expect_invalid(lambda: c.index_history("NIFTY 50", "not-a-date", "2026-01-01"))
+    expect_invalid(lambda: c.corporate_announcements("2026-01-01", "not-a-date"))
+    expect_invalid(lambda: c.option_chain("NIFTY", "index", expiry="not-a-date"))
+    try:
+        c.option_chain("NIFTY", "bogus")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for an unknown option chain kind")
 
 print("ok")
