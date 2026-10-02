@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "sauda"
-version = "0.1.0"
+version = "0.1.1"
 description = "NSE market data for Python, backed by a bundled Rust gRPC server"
 readme = "README.md"
 requires-python = ">=3.9"

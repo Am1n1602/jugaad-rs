@@ -57,10 +57,10 @@ jobs:
           name: wheels-${{ matrix.os }}
           path: python/dist/*.whl
 
-  # Tag pushes only; workflow_dispatch builds and smoke-tests but never uploads.
-  # Needs a trusted publisher on test.pypi.org: project "sauda", repo
-  # Am1n1602/jugaad-rs, workflow python-publish.yml, environment "testpypi".
-  publish:
+  # Tag pushes only; PR and workflow_dispatch runs build and smoke-test but
+  # never upload. Needs a trusted publisher on test.pypi.org: project "sauda",
+  # repo Am1n1602/jugaad-rs, workflow python-publish.yml, environment "testpypi".
+  publish-testpypi:
     if: startsWith(github.ref, 'refs/tags/py-v')
     needs: wheels
     runs-on: ubuntu-latest
@@ -76,3 +76,22 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  # Real PyPI, only after the TestPyPI upload succeeded. Same trusted-publisher
+  # fields on pypi.org with environment "pypi"; give that GitHub environment a
+  # required reviewer so every release needs a manual approval.
+  publish-pypi:
+    if: startsWith(github.ref, 'refs/tags/py-v')
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
