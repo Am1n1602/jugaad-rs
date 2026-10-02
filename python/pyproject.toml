@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "sauda"
+version = "0.1.0"
+description = "NSE market data for Python, backed by a bundled Rust gRPC server"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+dependencies = [
+    # Floors match the pinned grpcio-tools in requirements-gen.txt - the
+    # generated stubs refuse to import under an older grpcio/protobuf, and
+    # were verified to import under protobuf 5.x, 6.x and 7.x.
+    "grpcio>=1.71.2",
+    "protobuf>=5.29",
+]
+
+[project.urls]
+Repository = "https://github.com/Am1n1602/jugaad-rs"
+
+[tool.maturin]
+# Ships the jugaad-rpc binary (not a Python extension module) in the wheel's
+# scripts directory, the same way ruff and uv ship theirs.
+bindings = "bin"
+manifest-path = "../crates/jugaad-rpc/Cargo.toml"
+python-source = "src"
+module-name = "sauda"
