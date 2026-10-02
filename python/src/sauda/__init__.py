@@ -14,6 +14,7 @@ import socket
 import subprocess
 import sysconfig
 import time
+from collections.abc import Iterator
 
 import grpc
 
@@ -122,6 +123,16 @@ def _to_py(msg) -> dict:
     return out
 
 
+def _rows(response) -> list[dict]:
+    return [_to_py(row) for row in response.rows]
+
+
+_OPTION_CHAIN_KINDS = {
+    "index": pb.OPTION_CHAIN_KIND_INDEX,
+    "equity": pb.OPTION_CHAIN_KIND_EQUITY,
+}
+
+
 class Client:
     """Starts the bundled server on creation; use as a context manager or call
     `close()`. `stub` is the raw generated gRPC stub for every RPC."""
@@ -148,11 +159,83 @@ class Client:
     def stock_quote(self, symbol: str) -> dict:
         return _to_py(self.stub.GetStockQuote(pb.StockQuoteRequest(symbol=symbol)))
 
+    def watch_stock_quote(self, symbol: str, interval: int = 3) -> Iterator[dict]:
+        """Yields a fresh quote every `interval` whole seconds until the
+        generator is closed (break out of the loop, or call `.close()`)."""
+        stream = self.stub.WatchStockQuote(
+            pb.WatchStockQuoteRequest(symbol=symbol, interval_seconds=interval)
+        )
+        try:
+            for quote in stream:
+                yield _to_py(quote)
+        finally:
+            stream.cancel()
+
+    # Dates are `datetime.date` or "YYYY-MM-DD" everywhere below.
+
     def stock_history(
         self, symbol: str, from_date, to_date, series: str | None = None
     ) -> list[dict]:
-        """Daily OHLC/volume/delivery rows. Dates are `datetime.date` or "YYYY-MM-DD"."""
+        """Daily OHLC/volume/delivery rows."""
         request = pb.StockHistoryRequest(
             symbol=symbol, from_date=str(from_date), to_date=str(to_date), series=series
         )
-        return [_to_py(row) for row in self.stub.GetStockHistory(request).rows]
+        return _rows(self.stub.GetStockHistory(request))
+
+    def index_history(self, name: str, from_date, to_date) -> list[dict]:
+        """Daily OHLC for an index, e.g. "NIFTY 50"."""
+        request = pb.IndexHistoryRequest(
+            name=name, from_date=str(from_date), to_date=str(to_date)
+        )
+        return _rows(self.stub.GetIndexHistory(request))
+
+    def index_snapshot(self) -> list[dict]:
+        """Live snapshot of every NSE index."""
+        return _rows(self.stub.GetIndexSnapshot(pb.IndexSnapshotRequest()))
+
+    def large_deals(self) -> list[dict]:
+        """Today's bulk, short and block deals."""
+        return _rows(self.stub.GetLargeDeals(pb.LargeDealsRequest()))
+
+    def market_status(self) -> list[dict]:
+        """Open/closed status per market segment, holiday-aware."""
+        return [
+            _to_py(s)
+            for s in self.stub.GetMarketStatus(pb.MarketStatusRequest()).segments
+        ]
+
+    def option_chain(
+        self, symbol: str, kind: str = "index", expiry=None
+    ) -> list[dict]:
+        """`kind` ("index" or "equity") is NSE's own query parameter; it
+        currently returns identical data for either value, so pass "equity"
+        for stocks only to match NSE's convention. `expiry` defaults to the
+        nearest."""
+        try:
+            kind_enum = _OPTION_CHAIN_KINDS[kind.lower()]
+        except KeyError:
+            raise ValueError(f'kind must be "index" or "equity", got {kind!r}') from None
+        request = pb.OptionChainRequest(
+            symbol=symbol,
+            kind=kind_enum,
+            expiry=None if expiry is None else str(expiry),
+        )
+        return _rows(self.stub.GetOptionChain(request))
+
+    def option_expiries(self, symbol: str) -> list[str]:
+        """Every available option expiry as "YYYY-MM-DD", nearest first."""
+        response = self.stub.GetOptionExpiries(pb.OptionExpiriesRequest(symbol=symbol))
+        return list(response.expiries)
+
+    def corporate_announcements(
+        self, from_date, to_date, segment: str = "equities", symbol: str | None = None
+    ) -> list[dict]:
+        """Exchange disclosures. `segment` is equities, sme, debt, mf,
+        invitsreits or municipalBond; omit `symbol` for the whole segment."""
+        request = pb.CorporateAnnouncementsRequest(
+            segment=segment,
+            symbol=symbol,
+            from_date=str(from_date),
+            to_date=str(to_date),
+        )
+        return _rows(self.stub.GetCorporateAnnouncements(request))
