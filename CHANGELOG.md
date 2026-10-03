@@ -58,6 +58,12 @@ First tagged release.
 
 The wheel bundles the `jugaad-rpc` server as built from the tagged commit, so server changes reach Python users only with a new `py-v*` release.
 
+### 0.1.3 - 2026-10-03
+
+#### Fixed
+
+- Responses larger than gRPC's default 4 MiB receive limit no longer fail with `RESOURCE_EXHAUSTED`. `corporate_announcements` over the whole segment hit this for any range longer than about two weeks (a month is roughly 6 MB, three months 20 MB).
+
 ### 0.1.2 - 2026-10-02
 
 #### Added
