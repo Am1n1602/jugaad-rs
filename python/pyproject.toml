@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "sauda"
-version = "0.1.3"
+version = "0.2.0"
 description = "NSE market data for Python, backed by a bundled Rust gRPC server"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,3 +28,11 @@ bindings = "bin"
 manifest-path = "../crates/jugaad-rpc/Cargo.toml"
 python-source = "src"
 module-name = "sauda"
+# The generated stubs are gitignored, so without naming them an sdist would
+# build a wheel that cannot import. Wheels get them from python-source;
+# only the sdist also carries the tests and docs.
+include = [
+    { path = "src/sauda/_proto/*.py", format = "sdist" },
+    { path = "smoke_test.py", format = "sdist" },
+    { path = "MANUAL.md", format = "sdist" },
+]

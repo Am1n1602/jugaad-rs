@@ -1,115 +1,102 @@
 """NSE market data for Python.
 
-A thin client over a bundled Rust gRPC server (`jugaad-rpc`). Creating a
-`Client` starts the server on a loopback port; closing it stops the server -
-and so does this process dying, however it dies.
+An async client over a Rust gRPC server (`jugaad-rpc`). The client only
+connects: it assumes a server is already running, and starting or stopping
+one is up to you (the `jugaad-rpc` command or the Docker image).
 """
 
 from __future__ import annotations
 
-import atexit
+import asyncio
 import os
-import shutil
-import socket
-import subprocess
-import sysconfig
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
-import grpc
+from grpc import aio
 
 from ._proto import jugaad_pb2 as pb
 from ._proto import jugaad_pb2_grpc
 
-__all__ = ["Client"]
+__all__ = ["Client", "Config", "ConfigBuilder"]
 
-_EXE = "jugaad-rpc" + (".exe" if os.name == "nt" else "")
-
-
-def _find_binary() -> str:
-    # Same places ruff looks: the env's scripts dir, then the --user one.
-    user_scheme = (
-        sysconfig.get_preferred_scheme("user")
-        if hasattr(sysconfig, "get_preferred_scheme")
-        else f"{os.name}_user"
-    )
-    for scheme in (None, user_scheme):
-        try:
-            scripts = (
-                sysconfig.get_path("scripts", scheme)
-                if scheme
-                else sysconfig.get_path("scripts")
-            )
-        except KeyError:
-            continue
-        path = os.path.join(scripts, _EXE)
-        if os.path.isfile(path):
-            return path
-    found = shutil.which(_EXE)
-    if found:
-        return found
-    raise FileNotFoundError(f"bundled {_EXE} not found; is the sauda wheel installed?")
+DEFAULT_ADDR = "127.0.0.1:50051"
+_DEFAULT_CONNECT_TIMEOUT = 15.0
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+@dataclass(frozen=True)
+class Config:
+    addr: str | None = None
+    connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT
 
 
-def _open_channel(address: str) -> grpc.Channel:
-    # gRPC's default 4 MiB receive cap rejects big responses (a month of
-    # corporate announcements is ~6 MB). The server is local, so only memory
-    # bounds this.
-    return grpc.insecure_channel(
-        address, options=[("grpc.max_receive_message_length", -1)]
-    )
+class ConfigBuilder:
+    """Builds a `Config`:
 
+    - `addr`: the server to connect to (default 127.0.0.1:50051)
+    - `connect_timeout`: seconds `Client.connect()` waits for the server
+    """
 
-def _stop(proc: subprocess.Popen) -> None:
-    # Closing stdin is the server's cue to exit (JUGAAD_RPC_EXIT_ON_STDIN_CLOSE).
-    if proc.stdin:
-        try:
-            proc.stdin.close()
-        except OSError:
-            pass
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+    def __init__(self) -> None:
+        self._addr: str | None = None
+        self._connect_timeout = _DEFAULT_CONNECT_TIMEOUT
 
+    def addr(self, addr: str) -> ConfigBuilder:
+        if not addr:
+            raise ValueError("addr must not be empty")
+        self._addr = addr
+        return self
 
-def _start_server(timeout: float) -> tuple[subprocess.Popen, grpc.Channel]:
-    exe = _find_binary()
-    for _ in range(2):  # ponytail: free-port pick is racy, retry once; server could print its bound port instead
-        port = _free_port()
-        proc = subprocess.Popen(
-            [exe],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            env={
-                **os.environ,
-                "JUGAAD_RPC_ADDR": f"127.0.0.1:{port}",
-                "JUGAAD_RPC_EXIT_ON_STDIN_CLOSE": "1",
-            },
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        channel = _open_channel(f"127.0.0.1:{port}")
-        ready = grpc.channel_ready_future(channel)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline and proc.poll() is None:
+    def connect_timeout(self, seconds: float) -> ConfigBuilder:
+        self._connect_timeout = seconds
+        return self
+
+    def build(self) -> Config:
+        if not self._connect_timeout > 0:
+            raise ValueError("connect_timeout must be a positive number of seconds")
+        return Config(self._addr, self._connect_timeout)
+
+    def from_env(self) -> Config:
+        """Applies SAUDA_ADDR and SAUDA_CONNECT_TIMEOUT (seconds) over anything
+        already set, then builds. Unset or empty variables are ignored."""
+        env = os.environ
+        if env.get("SAUDA_ADDR"):
+            self.addr(env["SAUDA_ADDR"])
+        raw = env.get("SAUDA_CONNECT_TIMEOUT")
+        if raw:
             try:
-                ready.result(timeout=0.25)
-                return proc, channel
-            except grpc.FutureTimeoutError:
-                pass
-        ready.cancel()
-        channel.close()
-        if proc.poll() is None:
-            _stop(proc)
-            raise TimeoutError(f"jugaad-rpc not ready after {timeout}s")
-    raise RuntimeError(f"jugaad-rpc exited during startup (code {proc.returncode})")
+                self.connect_timeout(float(raw))
+            except ValueError:
+                raise ValueError(
+                    f"SAUDA_CONNECT_TIMEOUT must be a number of seconds, got {raw!r}"
+                ) from None
+        return self.build()
+
+
+def _open_channel(address: str) -> aio.Channel:
+    # gRPC's default 4 MiB receive cap rejects big responses (a month of
+    # corporate announcements is ~6 MB); the server is trusted, so only memory
+    # bounds this. The short reconnect backoff keeps connecting quick when the
+    # server has only just started listening (default 1s backoff otherwise).
+    return aio.insecure_channel(
+        address,
+        options=[
+            ("grpc.max_receive_message_length", -1),
+            ("grpc.initial_reconnect_backoff_ms", 100),
+            ("grpc.min_reconnect_backoff_ms", 100),
+        ],
+    )
+
+
+async def _wait_ready(channel: aio.Channel, timeout: float, target: str) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            await asyncio.wait_for(channel.channel_ready(), 0.25)
+            return
+        except asyncio.TimeoutError:
+            pass
+    raise TimeoutError(f"no server became ready at {target} within {timeout}s")
 
 
 def _to_py(msg) -> dict:
@@ -143,77 +130,112 @@ _OPTION_CHAIN_KINDS = {
 
 
 class Client:
-    """Starts the bundled server on creation; use as a context manager or call
-    `close()`. `stub` is the raw generated gRPC stub for every RPC."""
+    """Async client for a `jugaad-rpc` server that is already running at
+    `config.addr` (default 127.0.0.1:50051). It never starts or stops a
+    server. Call `await connect()` before anything else and
+    `await disconnect()` when done, or use `async with`. A connected client
+    belongs to the event loop it connected in."""
 
-    def __init__(self, startup_timeout: float = 15.0) -> None:
-        self._proc, self._channel = _start_server(startup_timeout)
-        self.stub = jugaad_pb2_grpc.JugaadStub(self._channel)
-        atexit.register(self.close)
+    def __init__(self, config: Config | None = None) -> None:
+        self._config = config
+        self._channel: aio.Channel | None = None
+        self._stub = None
 
-    def close(self) -> None:
-        if self._proc is None:
+    @property
+    def stub(self):
+        """The raw generated async gRPC stub, exposing every RPC."""
+        if self._stub is None:
+            raise RuntimeError("not connected: call `await client.connect()` first")
+        return self._stub
+
+    async def connect(self, config: Config | None = None) -> None:
+        """Uses `config`, else the one given to `Client(...)`, else the defaults."""
+        if self._channel is not None:
+            raise RuntimeError(
+                "already connected: call `await client.disconnect()` first"
+            )
+        config = config or self._config or ConfigBuilder().build()
+        addr = config.addr or DEFAULT_ADDR
+        channel = _open_channel(addr)
+        try:
+            await _wait_ready(channel, config.connect_timeout, addr)
+        except BaseException as e:
+            await channel.close()
+            if isinstance(e, TimeoutError):
+                raise TimeoutError(
+                    f"{e}; start one with the jugaad-rpc command or the Docker image"
+                ) from None
+            raise
+        self._channel = channel
+        self._stub = jugaad_pb2_grpc.JugaadStub(channel)
+
+    async def disconnect(self) -> None:
+        """Closes the connection; the server keeps running."""
+        if self._channel is None:
             return
-        atexit.unregister(self.close)
-        self._channel.close()
-        _stop(self._proc)
-        self._proc = None
+        channel = self._channel
+        self._channel = self._stub = None
+        await channel.close()
 
-    def __enter__(self) -> Client:
+    async def __aenter__(self) -> Client:
+        await self.connect()
         return self
 
-    def __exit__(self, *exc) -> None:
-        self.close()
+    async def __aexit__(self, *exc) -> None:
+        await self.disconnect()
 
-    def stock_quote(self, symbol: str) -> dict:
-        return _to_py(self.stub.GetStockQuote(pb.StockQuoteRequest(symbol=symbol)))
+    async def stock_quote(self, symbol: str) -> dict:
+        return _to_py(
+            await self.stub.GetStockQuote(pb.StockQuoteRequest(symbol=symbol))
+        )
 
-    def watch_stock_quote(self, symbol: str, interval: int = 3) -> Iterator[dict]:
+    async def watch_stock_quote(
+        self, symbol: str, interval: int = 3
+    ) -> AsyncIterator[dict]:
         """Yields a fresh quote every `interval` whole seconds until the
-        generator is closed (break out of the loop, or call `.close()`)."""
-        stream = self.stub.WatchStockQuote(
+        generator is closed (`aclose()`, or `disconnect()` which ends every
+        stream)."""
+        call = self.stub.WatchStockQuote(
             pb.WatchStockQuoteRequest(symbol=symbol, interval_seconds=interval)
         )
         try:
-            for quote in stream:
+            async for quote in call:
                 yield _to_py(quote)
         finally:
-            stream.cancel()
+            call.cancel()
 
     # Dates are `datetime.date` or "YYYY-MM-DD" everywhere below.
 
-    def stock_history(
+    async def stock_history(
         self, symbol: str, from_date, to_date, series: str | None = None
     ) -> list[dict]:
         """Daily OHLC/volume/delivery rows."""
         request = pb.StockHistoryRequest(
             symbol=symbol, from_date=str(from_date), to_date=str(to_date), series=series
         )
-        return _rows(self.stub.GetStockHistory(request))
+        return _rows(await self.stub.GetStockHistory(request))
 
-    def index_history(self, name: str, from_date, to_date) -> list[dict]:
+    async def index_history(self, name: str, from_date, to_date) -> list[dict]:
         """Daily OHLC for an index, e.g. "NIFTY 50"."""
         request = pb.IndexHistoryRequest(
             name=name, from_date=str(from_date), to_date=str(to_date)
         )
-        return _rows(self.stub.GetIndexHistory(request))
+        return _rows(await self.stub.GetIndexHistory(request))
 
-    def index_snapshot(self) -> list[dict]:
+    async def index_snapshot(self) -> list[dict]:
         """Live snapshot of every NSE index."""
-        return _rows(self.stub.GetIndexSnapshot(pb.IndexSnapshotRequest()))
+        return _rows(await self.stub.GetIndexSnapshot(pb.IndexSnapshotRequest()))
 
-    def large_deals(self) -> list[dict]:
+    async def large_deals(self) -> list[dict]:
         """Today's bulk, short and block deals."""
-        return _rows(self.stub.GetLargeDeals(pb.LargeDealsRequest()))
+        return _rows(await self.stub.GetLargeDeals(pb.LargeDealsRequest()))
 
-    def market_status(self) -> list[dict]:
+    async def market_status(self) -> list[dict]:
         """Open/closed status per market segment, holiday-aware."""
-        return [
-            _to_py(s)
-            for s in self.stub.GetMarketStatus(pb.MarketStatusRequest()).segments
-        ]
+        response = await self.stub.GetMarketStatus(pb.MarketStatusRequest())
+        return [_to_py(s) for s in response.segments]
 
-    def option_chain(
+    async def option_chain(
         self, symbol: str, kind: str = "index", expiry=None
     ) -> list[dict]:
         """`kind` ("index" or "equity") is NSE's own query parameter; it
@@ -229,14 +251,16 @@ class Client:
             kind=kind_enum,
             expiry=None if expiry is None else str(expiry),
         )
-        return _rows(self.stub.GetOptionChain(request))
+        return _rows(await self.stub.GetOptionChain(request))
 
-    def option_expiries(self, symbol: str) -> list[str]:
+    async def option_expiries(self, symbol: str) -> list[str]:
         """Every available option expiry as "YYYY-MM-DD", nearest first."""
-        response = self.stub.GetOptionExpiries(pb.OptionExpiriesRequest(symbol=symbol))
+        response = await self.stub.GetOptionExpiries(
+            pb.OptionExpiriesRequest(symbol=symbol)
+        )
         return list(response.expiries)
 
-    def corporate_announcements(
+    async def corporate_announcements(
         self, from_date, to_date, segment: str = "equities", symbol: str | None = None
     ) -> list[dict]:
         """Exchange disclosures. `segment` is equities, sme, debt, mf,
@@ -247,4 +271,4 @@ class Client:
             from_date=str(from_date),
             to_date=str(to_date),
         )
-        return _rows(self.stub.GetCorporateAnnouncements(request))
+        return _rows(await self.stub.GetCorporateAnnouncements(request))

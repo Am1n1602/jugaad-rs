@@ -58,6 +58,28 @@ First tagged release.
 
 The wheel bundles the `jugaad-rpc` server as built from the tagged commit, so server changes reach Python users only with a new `py-v*` release.
 
+### 0.2.0 - 2026-10-03
+
+Breaking: the client is async only and no longer starts a server. See the [upgrade notes](python/MANUAL.md#upgrading-from-01x); pin `sauda<0.2` to stay on 0.1.x.
+
+#### Changed
+
+- Every `Client` method is a coroutine, and `watch_stock_quote` is an async generator. There is no sync client.
+- The client only connects to a server that is already running; starting and stopping one is up to you, with the `jugaad-rpc` command that the wheel installs or with the Docker image. Creating a `Client` no longer launches a process, and `disconnect()` leaves the server running. Connecting is explicit: `await client.connect(config)` and `await client.disconnect()`, or `async with`.
+- The default address is now a fixed `127.0.0.1:50051` instead of a server on a random port.
+- `close()` and `Client(startup_timeout=...)` are gone; use `disconnect()` and `ConfigBuilder().connect_timeout(...)`.
+- Connecting is more than three times faster (0.5s to 0.14s) when the server has only just started: the channel retries its first connection quickly instead of backing off for a second.
+
+#### Added
+
+- `ConfigBuilder` and `Config`: `addr` and `connect_timeout`, plus `from_env()` reading `SAUDA_ADDR` and `SAUDA_CONNECT_TIMEOUT`.
+- When no server is listening, `connect()` raises a `TimeoutError` that says how to start one.
+- A source distribution (sdist) is now published alongside the wheels, as PyPI's packaging guide recommends. On a platform without a wheel (Intel Mac, Linux ARM, musl) pip builds the server from it, which needs a Rust toolchain.
+
+#### Removed
+
+- The bundled server no longer has the `JUGAAD_RPC_EXIT_ON_STDIN_CLOSE` option that 0.1.x used to stop the server it launched. Nothing launches it any more.
+
 ### 0.1.3 - 2026-10-03
 
 #### Fixed
