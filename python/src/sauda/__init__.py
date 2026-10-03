@@ -57,6 +57,15 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _open_channel(address: str) -> grpc.Channel:
+    # gRPC's default 4 MiB receive cap rejects big responses (a month of
+    # corporate announcements is ~6 MB). The server is local, so only memory
+    # bounds this.
+    return grpc.insecure_channel(
+        address, options=[("grpc.max_receive_message_length", -1)]
+    )
+
+
 def _stop(proc: subprocess.Popen) -> None:
     # Closing stdin is the server's cue to exit (JUGAAD_RPC_EXIT_ON_STDIN_CLOSE).
     if proc.stdin:
@@ -86,7 +95,7 @@ def _start_server(timeout: float) -> tuple[subprocess.Popen, grpc.Channel]:
             },
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        channel = grpc.insecure_channel(f"127.0.0.1:{port}")
+        channel = _open_channel(f"127.0.0.1:{port}")
         ready = grpc.channel_ready_future(channel)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and proc.poll() is None:

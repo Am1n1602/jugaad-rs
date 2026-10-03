@@ -35,6 +35,30 @@ below - they read `crates/jugaad-rpc/proto/jugaad.proto` directly, since
 that stays the single source of truth for both clients rather than a
 separately-published copy.
 
+## Large responses
+
+gRPC clients reject responses over 4 MiB by default, but some RPCs can
+return more than that: `GetCorporateAnnouncements` for a whole segment is
+about 6 MB for a month and 20 MB for three months. The server sends them
+fine; the failure is on the client, as `RESOURCE_EXHAUSTED: Received
+message larger than max (... vs. 4194304)`. Raise the receive limit on
+your channel (verified with both examples' libraries):
+
+```python
+channel = grpc.insecure_channel(
+    "localhost:50051", options=[("grpc.max_receive_message_length", -1)]
+)
+```
+
+```js
+const client = new jugaad.Jugaad("localhost:50051", grpc.credentials.createInsecure(), {
+  "grpc.max_receive_message_length": -1,
+});
+```
+
+(The `sauda` Python package already does this.) The two small examples
+below don't need it.
+
 ## Python
 
 Generates real stubs via `grpcio-tools` (not dynamic loading), matching

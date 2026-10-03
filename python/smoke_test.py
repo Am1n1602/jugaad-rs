@@ -5,10 +5,13 @@ and checks the protobuf -> dict conversion. Needs no network:
     python smoke_test.py
 """
 
+from concurrent import futures
+
 import grpc
 
-from sauda import Client, _to_py
+from sauda import Client, _open_channel, _to_py
 from sauda._proto import jugaad_pb2 as pb
+from sauda._proto import jugaad_pb2_grpc
 
 q = pb.StockQuote(symbol="X", total_traded_volume=2**40, delivery_pct=1.5)
 q.order_book.levels.add(buy_price=1.0)
@@ -40,5 +43,35 @@ with Client() as c:
         pass
     else:
         raise AssertionError("expected ValueError for an unknown option chain kind")
+
+
+# A response over gRPC's default 4 MiB cap must still arrive: a local fake
+# server returns ~5 MB; a default channel rejects it, sauda's channel does not.
+class BigServer(jugaad_pb2_grpc.JugaadServicer):
+    def GetStockHistory(self, request, context):
+        row = pb.StockHistoryRow(symbol="X" * 100)
+        return pb.StockHistoryResponse(rows=[row] * 50_000)
+
+
+fake = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+jugaad_pb2_grpc.add_JugaadServicer_to_server(BigServer(), fake)
+port = fake.add_insecure_port("127.0.0.1:0")
+fake.start()
+try:
+    request = pb.StockHistoryRequest(
+        symbol="X", from_date="2026-01-01", to_date="2026-01-02"
+    )
+    with grpc.insecure_channel(f"127.0.0.1:{port}") as default_channel:
+        try:
+            jugaad_pb2_grpc.JugaadStub(default_channel).GetStockHistory(request)
+        except grpc.RpcError as e:
+            assert e.code() == grpc.StatusCode.RESOURCE_EXHAUSTED, e
+        else:
+            raise AssertionError("expected the default 4 MiB cap to reject the response")
+    with _open_channel(f"127.0.0.1:{port}") as channel:
+        response = jugaad_pb2_grpc.JugaadStub(channel).GetStockHistory(request)
+        assert len(response.rows) == 50_000
+finally:
+    fake.stop(None)
 
 print("ok")

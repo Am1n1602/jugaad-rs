@@ -51,6 +51,7 @@ Creating a `Client` starts the bundled `jugaad-rpc` server as a child process, l
 
 - **Shutdown:** `close()`, leaving a `with` block, and normal interpreter exit all stop the server. It also stops when your Python process dies abruptly (a hard kill, or a notebook kernel restart), so it does not leave stray processes behind.
 - **One server per `Client`.** Create one `Client` and reuse it rather than making one per request.
+- **Response size:** the client accepts responses of any size. gRPC's default 4 MiB cap would reject, for example, a month of whole-segment corporate announcements (about 6 MB), so `sauda` lifts it on its own connection; only your memory bounds it. This applies from 0.1.3; 0.1.2 and earlier raise `RESOURCE_EXHAUSTED` on such calls.
 - **Startup:** `Client(startup_timeout=15.0)` waits up to that many seconds for the server to accept connections.
 - **Network behavior:** the server uses 10 second connect and 30 second request timeouts, and retries transient failures (connection errors, timeouts, HTTP 408/429/5xx) up to 3 times with backoff. NSE's own 403 "blocked" response is deliberately never retried.
 
@@ -129,13 +130,13 @@ Every available expiry as `"YYYY-MM-DD"`, nearest first, from the symbol's optio
 
 ### `Client.corporate_announcements(from_date, to_date, segment="equities", symbol=None) -> list[dict]`
 
-Exchange disclosures (board meetings, credit ratings, press releases and similar). `segment` is one of `equities`, `sme`, `debt`, `mf`, `invitsreits` or `municipalBond`. Leave `symbol` out for the whole segment, which can be thousands of rows for even a couple of days.
+Exchange disclosures (board meetings, credit ratings, press releases and similar). `segment` is one of `equities`, `sme`, `debt`, `mf`, `invitsreits` or `municipalBond`. Leave `symbol` out for the whole segment, which is large: about 1,200 rows per trading day, so roughly 17,000 rows for a month and 55,000 for three months (a few seconds to fetch).
 
 Fields: `company_name`, `category`, `description`, `has_xbrl`, `announcement_time` (ISO 8601), `sequence_id`, and the optional `symbol`, `isin`, `industry`, `attachment_url`, `file_size`.
 
 ### Raw access
 
-`Client.stub` is the generated gRPC stub and exposes every RPC the server offers, returning raw protobuf messages. The request and response classes are in `sauda._proto.jugaad_pb2`; that path is internal and may change, so prefer the methods above where one exists.
+`Client.stub` is the generated gRPC stub and exposes every RPC the server offers, returning raw protobuf messages. The request and response classes are in `sauda._proto.jugaad_pb2`; that path is internal and may change, so prefer the methods above where one exists. `Client.stub` already allows large responses; if you build your own gRPC channel to the server, set `grpc.max_receive_message_length` yourself (see [Errors](#errors)).
 
 ## Errors
 
@@ -144,6 +145,7 @@ Fields: `company_name`, `category`, `description`, `has_xbrl`, `announcement_tim
 | `grpc.RpcError` with `.code()` = `INVALID_ARGUMENT` | A date was not `YYYY-MM-DD`. `.details()` names the argument. |
 | `grpc.RpcError` with `NOT_FOUND` | `stock_quote`, `watch_stock_quote` or `option_chain` could not find the symbol, or NSE had no data for it. |
 | `grpc.RpcError` with `UNAVAILABLE` | NSE has blocked the session (its bot protection). Wait a while before retrying. |
+| `grpc.RpcError` with `RESOURCE_EXHAUSTED` | A response was larger than the receive limit ("Received message larger than max"). `sauda` 0.1.3 and later never hits this; upgrade if you see it. On a gRPC channel you built yourself, set `grpc.max_receive_message_length` (to `-1` for unlimited). |
 | `grpc.RpcError` with `INTERNAL` | Any other upstream failure (network error, unexpected NSE response). `.details()` has the message. |
 | `ValueError` | `option_chain` was given a `kind` other than `"index"` or `"equity"`. |
 | `FileNotFoundError` | The bundled server binary was not found (see Troubleshooting). |
