@@ -262,6 +262,7 @@ If that (or `cargo test --workspace --all-features`) intermittently fails with e
 
 - [`docs/cli.md`](docs/cli.md) - full CLI reference, kept in sync with `--help` output
 - [`docs/nse-findings.md`](docs/nse-findings.md) - a running log of undocumented NSE API behavior discovered while building this
+- [`CHANGELOG.md`](CHANGELOG.md) - release notes for the Rust workspace and the `sauda` package
 - [`python/MANUAL.md`](python/MANUAL.md) - the manual for the `sauda` Python package
 - [`clients/README.md`](clients/README.md) - example gRPC clients in Python and Node.js
 

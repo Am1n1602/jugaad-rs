@@ -24,6 +24,14 @@ The workspace has three crates:
 - [`crates/jugaad-rpc`](crates/jugaad-rpc/) - a gRPC server exposing
   `jugaad-core` to non-Rust frontends.
 
+Two more directories sit outside the Cargo workspace:
+
+- [`python/`](python/) - `sauda`, the pip package that bundles the
+  `jugaad-rpc` binary. It has its own
+  [development flow](python/README.md#development).
+- [`clients/`](clients/) - small example gRPC clients in Python and
+  Node.js.
+
 ## The one rule that matters most: verify live before writing code
 
 NSE's endpoints have no official documentation. Every non-obvious
@@ -94,6 +102,11 @@ part you changed:
 cargo test -p jugaad-core -- --ignored <test_name>
 ```
 
+If you touched `python/`, also run its offline smoke test (see
+[`python/README.md`](python/README.md#development)). And add a line under
+**Unreleased** in [`CHANGELOG.md`](CHANGELOG.md) for anything a user of
+the library, CLI, server or Python package would notice.
+
 ## Code style
 
 - `unsafe_code = "forbid"` at the workspace level - don't introduce any,
@@ -118,3 +131,59 @@ Describe what changed and why, not just what. The `Step N: ...` prefix
 on commits in this repo's history is the maintainer's own running
 sequence for the primary line of work - contributors don't need to
 follow that numbering, just write a clear, descriptive message.
+
+## Releasing
+
+For maintainers. Releases are tag-driven, on two independent tracks with
+different tag prefixes: a `v*` tag never publishes to PyPI, and a `py-v*`
+tag never builds binaries or the Docker image.
+
+| Tag | Workflow | Publishes |
+|---|---|---|
+| `vX.Y.Z` | `release.yml` | the `jugaad` CLI archives (Linux x86_64, macOS Intel and Apple Silicon, Windows x64), attached to the GitHub Release |
+| `vX.Y.Z` | `docker-publish.yml` | `ghcr.io/am1n1602/jugaad-rpc`, tagged `X.Y.Z`, `latest` and the commit SHA |
+| `py-vX.Y.Z` | `python-publish.yml` | `sauda` wheels to TestPyPI, then to PyPI after a manual approval |
+
+**Version numbers:**
+
+- **`v*` releases:** bump `[workspace.package] version` in `Cargo.toml`
+  first, run `cargo build` to refresh `Cargo.lock`, and update the sample
+  `jugaad version` output in `docs/cli.md`. The CLI's `--version` reads
+  `Cargo.toml`: `v0.2.1` and `v0.2.2` were tagged without a bump, so
+  their binaries report `0.2.0`.
+- **`py-v*` releases:** `version` in `python/pyproject.toml` is
+  independent of the Rust version. PyPI and TestPyPI never accept the same
+  version twice, even after a deletion, so always bump before tagging;
+  `sauda` takes a patch bump per release (`0.1.2`, then `0.1.3`).
+- **Which tag reaches whom:** the `sauda` wheel bundles `jugaad-rpc` as
+  built from the tagged commit, and the Docker image is rebuilt only on
+  `v*` tags. A server change therefore reaches Python users with the next
+  `py-v*` tag and Docker users with the next `v*` tag.
+
+**Steps:**
+
+1. Land the changes on `main` with CI green.
+2. Move the **Unreleased** entries in `CHANGELOG.md` under a new version
+   heading with the date.
+3. Bump the version as above, commit, and push to `main`.
+4. Tag from `main` and push the tag:
+
+   ```bash
+   git tag -a vX.Y.Z -m "short description of the release"
+   git push origin vX.Y.Z
+   ```
+
+   For the Python package, use `py-vX.Y.Z` instead.
+5. Watch the run in the Actions tab. For `py-v*`, approve the `pypi`
+   deployment when prompted, after checking the TestPyPI upload.
+6. Verify what shipped: the Release page has four archives,
+   `docker pull ghcr.io/am1n1602/jugaad-rpc:X.Y.Z` works, and
+   `pip install sauda==X.Y.Z` works in a clean virtual environment (the
+   PyPI JSON API can lag a few minutes behind a new upload).
+
+**One-time setup:** the PyPI and TestPyPI trusted publishers are already
+configured (project `sauda`, owner `Am1n1602`, repo `jugaad-rs`, workflow
+`python-publish.yml`, environments `pypi` and `testpypi`); redo them only
+if the repo or workflow file is renamed. Also give the `pypi` environment
+a required reviewer in the repo's GitHub settings - that is what makes the
+approval prompt in step 5 appear.

@@ -1,0 +1,84 @@
+# Changelog
+
+Two release tracks, versioned independently (see [Releasing](CONTRIBUTING.md#releasing)):
+
+- **Rust workspace** - `jugaad-core`, the `jugaad` CLI, `jugaad-rpc` and its Docker image. Tagged `vX.Y.Z`.
+- **`sauda`** - the Python package on PyPI. Tagged `py-vX.Y.Z`.
+
+Add an entry under **Unreleased** with every user-visible change; it moves under a version heading when that version is tagged.
+
+## Unreleased
+
+### Changed
+
+- The workspace version is now `0.2.2`. It stayed at `0.2.0` through the `v0.2.1` and `v0.2.2` tags, so binaries from those two releases report `jugaad 0.2.0` from `--version`.
+
+## Rust workspace
+
+### 0.2.2 - 2026-09-28
+
+#### Added
+
+- `jugaad-rpc` now exposes 10 RPCs. New: `GetStockHistory`, `GetIndexHistory`, `GetIndexSnapshot`, `GetLargeDeals`, `GetMarketStatus`, `GetOptionChain`, `GetOptionExpiries`, `GetCorporateAnnouncements`.
+
+#### Changed
+
+- Every NSE client has a 10 second connect timeout and a 30 second request timeout, and retries transient failures (connection errors, timeouts, HTTP 408/429/5xx) up to 3 times with exponential backoff. A 403 (`Error::Blocked`) is never retried.
+- `jugaad_core::Error` has a new `HttpRetry` variant for network failures that survived the retries. `Error` is not `#[non_exhaustive]`, so code that matches it exhaustively needs a new arm.
+
+#### Tests
+
+- The 54 inline JSON samples moved into `crates/jugaad-core/tests/fixtures/`.
+- New regression tests deserialize full real responses for the option chain, 52-week highs/lows and Integrated Filing endpoints, which are the three that previously hid bugs a small sample missed.
+
+### 0.2.1 - 2026-09-25
+
+#### Added
+
+- `jugaad-rpc`, a gRPC server over `jugaad-core`, with `GetStockQuote` and a streaming `WatchStockQuote`.
+- Docker image published to `ghcr.io/am1n1602/jugaad-rpc` on every `v*` tag.
+- Python and Node.js example clients in `clients/`.
+
+### 0.2.0 - 2026-09-24
+
+First tagged release.
+
+#### Added
+
+- `jugaad-core` and the `jugaad` CLI (47 commands) covering bhavcopy (old and new formats, F&O, full), stock, index and derivatives history, index P/E, P/B and Total Return, generic daily reports, live market data, per-symbol quotes, charts and option chains, block and bulk deals, financial results with XBRL/HTML download, corporate announcements, Social Stock Exchange announcements and SEBI Integrated Filing entries.
+- Optional `dataframe` feature that converts any row type into a `polars::DataFrame`.
+- Prebuilt CLI binaries for Linux, macOS (Intel and Apple Silicon) and Windows on every release.
+
+#### Fixed
+
+- Multi-month history ranges no longer return dates in a sawtooth order.
+- Live chart and session datapoint parsing, and option-chain parsing.
+
+## `sauda`
+
+The wheel bundles the `jugaad-rpc` server as built from the tagged commit, so server changes reach Python users only with a new `py-v*` release.
+
+### 0.1.2 - 2026-10-02
+
+#### Added
+
+- Methods for the remaining RPCs: `index_history`, `index_snapshot`, `large_deals`, `market_status`, `option_chain`, `option_expiries`, `corporate_announcements`, and a `watch_stock_quote` generator.
+- A full user manual, [`python/MANUAL.md`](python/MANUAL.md).
+
+### 0.1.1 - 2026-10-02
+
+First release on PyPI.
+
+#### Fixed
+
+- The README link to `jugaad-rpc` is absolute, so it works on the PyPI page.
+
+### 0.1.0 - 2026-10-02
+
+TestPyPI only; never on PyPI.
+
+#### Added
+
+- `Client`, which starts the bundled `jugaad-rpc` server on a loopback port and stops it on close, or when the Python process dies.
+- `stock_quote` and `stock_history`, plus `Client.stub` for raw access to every RPC.
+- Wheels for Windows x64, Linux x86_64 and macOS Apple Silicon.
