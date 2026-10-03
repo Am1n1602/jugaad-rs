@@ -31,11 +31,19 @@ On any other platform (Intel Mac, Linux ARM, Alpine/musl) there is no wheel, bec
 
 ## Quickstart
 
-First start the server, once, in its own terminal (more options under [Running the server](#running-the-server)):
+First start the server, once, in its own terminal and leave it running. On macOS and Linux:
 
 ```bash
 JUGAAD_RPC_ADDR=127.0.0.1:50051 jugaad-rpc
 ```
+
+On Windows PowerShell:
+
+```powershell
+$env:JUGAAD_RPC_ADDR = "127.0.0.1:50051"; jugaad-rpc
+```
+
+(Command Prompt and Docker are covered under [Running the server](#running-the-server).)
 
 Then connect:
 
@@ -75,17 +83,25 @@ Tabular results are lists of dicts, so they drop straight into pandas: `pandas.D
 
 The server is a separate program that keeps running while your code uses it. Start it in a terminal, as a service, or in Docker, and stop it yourself when you are done.
 
-**The `jugaad-rpc` command** (installed with the wheel). In a terminal, bash style:
+**The `jugaad-rpc` command** (installed with the wheel). Setting an environment variable for one command works differently in each shell. On macOS and Linux (bash, zsh):
 
 ```bash
 JUGAAD_RPC_ADDR=127.0.0.1:50051 jugaad-rpc
 ```
 
-or PowerShell:
+On Windows, PowerShell:
 
 ```powershell
 $env:JUGAAD_RPC_ADDR = "127.0.0.1:50051"; jugaad-rpc
 ```
+
+On Windows, Command Prompt (cmd.exe):
+
+```bat
+set "JUGAAD_RPC_ADDR=127.0.0.1:50051" && jugaad-rpc
+```
+
+Keep the quotes in the cmd form: without them the space before `&&` becomes part of the value and the server stops with `invalid socket address syntax`. In PowerShell and cmd the variable stays set in that terminal window until you close it, so later runs in the same window need only `jugaad-rpc`.
 
 **Docker** (no Python or Rust needed on the server side), publishing the port on loopback only:
 

@@ -6,11 +6,19 @@ NSE market data for Python. An async client for [`jugaad-rpc`](https://github.co
 pip install sauda
 ```
 
-Start the server in its own terminal and leave it running:
+Start the server in its own terminal and leave it running. On macOS and Linux:
 
 ```bash
 JUGAAD_RPC_ADDR=127.0.0.1:50051 jugaad-rpc
 ```
+
+On Windows PowerShell:
+
+```powershell
+$env:JUGAAD_RPC_ADDR = "127.0.0.1:50051"; jugaad-rpc
+```
+
+(Command Prompt and Docker are in [the manual](https://github.com/Am1n1602/jugaad-rs/blob/main/python/MANUAL.md#running-the-server).)
 
 Then connect from Python:
 
