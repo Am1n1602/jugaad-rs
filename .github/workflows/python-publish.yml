@@ -54,15 +54,50 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}
+          name: dist-wheel-${{ matrix.os }}
           path: python/dist/*.whl
+
+  # PyPI's packaging guide says to always upload an sdist alongside the wheels.
+  # It is what pip builds from on a platform without a wheel (Intel Mac, Linux
+  # ARM, musl), so it must work on its own: install from it and smoke test.
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Generate gRPC stubs
+        working-directory: python
+        run: |
+          pip install -r requirements-gen.txt
+          python generate.py
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          command: sdist
+          args: --out dist
+
+      - name: Build from the sdist in a clean venv and smoke test it
+        run: |
+          python -m venv "$RUNNER_TEMP/from-sdist"
+          "$RUNNER_TEMP/from-sdist/bin/python" -m pip install python/dist/*.tar.gz
+          "$RUNNER_TEMP/from-sdist/bin/python" python/smoke_test.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: python/dist/*.tar.gz
 
   # Tag pushes only; PR and workflow_dispatch runs build and smoke-test but
   # never upload. Needs a trusted publisher on test.pypi.org: project "sauda",
   # repo Am1n1602/jugaad-rs, workflow python-publish.yml, environment "testpypi".
   publish-testpypi:
     if: startsWith(github.ref, 'refs/tags/py-v')
-    needs: wheels
+    needs: [wheels, sdist]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -70,7 +105,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheels-*
+          pattern: dist-*
           merge-multiple: true
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
@@ -91,7 +126,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheels-*
+          pattern: dist-*
           merge-multiple: true
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1

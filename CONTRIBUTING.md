@@ -142,7 +142,7 @@ tag never builds binaries or the Docker image.
 |---|---|---|
 | `vX.Y.Z` | `release.yml` | the `jugaad` CLI archives (Linux x86_64, macOS Intel and Apple Silicon, Windows x64), attached to the GitHub Release |
 | `vX.Y.Z` | `docker-publish.yml` | `ghcr.io/am1n1602/jugaad-rpc`, tagged `X.Y.Z`, `latest` and the commit SHA |
-| `py-vX.Y.Z` | `python-publish.yml` | `sauda` wheels to TestPyPI, then to PyPI after a manual approval |
+| `py-vX.Y.Z` | `python-publish.yml` | `sauda` wheels and a source distribution (sdist) to TestPyPI, then to PyPI after a manual approval |
 
 **Version numbers:**
 
@@ -153,12 +153,24 @@ tag never builds binaries or the Docker image.
   their binaries report `0.2.0`.
 - **`py-v*` releases:** `version` in `python/pyproject.toml` is
   independent of the Rust version. PyPI and TestPyPI never accept the same
-  version twice, even after a deletion, so always bump before tagging;
-  `sauda` takes a patch bump per release (`0.1.2`, then `0.1.3`).
+  version twice, even after a deletion, so always bump before tagging.
+  While below 1.0, `sauda` takes a patch bump for compatible changes
+  (`0.1.2`, then `0.1.3`) and a minor bump for breaking ones (`0.2.0`), so
+  that pins like `~=0.1.3` don't pull users across a break.
 - **Which tag reaches whom:** the `sauda` wheel bundles `jugaad-rpc` as
   built from the tagged commit, and the Docker image is rebuilt only on
   `v*` tags. A server change therefore reaches Python users with the next
   `py-v*` tag and Docker users with the next `v*` tag.
+- **Wheels and an sdist, always both:** PyPI's
+  [packaging guide](https://packaging.python.org/en/latest/discussions/package-formats/)
+  says to upload both, and the sdist is what pip builds from on a platform
+  with no wheel. The workflow's `sdist` job installs from the sdist and runs
+  the smoke test, so a broken sdist fails the release before anything is
+  uploaded. Keep the Cargo workspace `members` written without trailing
+  slashes (`crates/jugaad-core`, not `crates/jugaad-core/`): maturin trims
+  `members` to the crates in the sdist by string comparison, and drops the
+  list entirely if they do not match, which leaves a workspace Cargo
+  refuses to build.
 
 **Steps:**
 

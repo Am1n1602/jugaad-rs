@@ -195,17 +195,27 @@ method's own doc comment.
 
 `jugaad-rpc` is a gRPC server over `jugaad-core`, so anything that speaks gRPC can use it. It exposes ten RPCs: `GetStockQuote`, `WatchStockQuote` (streaming), `GetStockHistory`, `GetIndexHistory`, `GetIndexSnapshot`, `GetLargeDeals`, `GetMarketStatus`, `GetOptionChain`, `GetOptionExpiries` and `GetCorporateAnnouncements`. The full definitions are in [`jugaad.proto`](crates/jugaad-rpc/proto/jugaad.proto).
 
-**Python:** [`sauda`](python/MANUAL.md) bundles the server binary and starts it for you, so there is nothing else to install or run:
+**Python:** [`sauda`](python/MANUAL.md) is an async client for it. The wheel also installs the server as the `jugaad-rpc` command, so Docker is optional. You run the server and `sauda` connects to it:
 
-```python
-from sauda import Client
-
-with Client() as c:
-    print(c.stock_quote("SBIN")["last_price"])
-    rows = c.stock_history("SBIN", "2026-09-01", "2026-09-30")
+```bash
+JUGAAD_RPC_ADDR=127.0.0.1:50051 jugaad-rpc
 ```
 
-Wheels are published for Windows x64, Linux x86_64 and macOS Apple Silicon, on Python 3.9+. The [manual](python/MANUAL.md) covers every method, the error codes, and troubleshooting.
+```python
+import asyncio
+from sauda import Client
+
+async def main():
+    client = Client()
+    await client.connect()                          # connects to 127.0.0.1:50051
+    print((await client.stock_quote("SBIN"))["last_price"])
+    rows = await client.stock_history("SBIN", "2026-09-01", "2026-09-30")
+    await client.disconnect()                       # the server keeps running
+
+asyncio.run(main())
+```
+
+Wheels are published for Windows x64, Linux x86_64 and macOS Apple Silicon, on Python 3.9+; other platforms build from the source distribution, which needs Rust 1.88+. The [manual](python/MANUAL.md) covers every method, the error codes, and troubleshooting.
 
 **Any other language:** run the server from the Docker image above (no Rust toolchain needed), then generate a client from the `.proto`. Working Python and Node.js examples are in [`clients/`](clients/).
 
@@ -223,14 +233,14 @@ graph LR
     Core -->|HTTPS| NSE
     Cli --> Core
     Rpc --> Core
-    Sauda -->|bundles, spawns, gRPC| Rpc
+    Sauda -->|gRPC| Rpc
     Clients -->|gRPC| Rpc
 ```
 
 - [`crates/jugaad-core`](crates/jugaad-core/) - the library: NSE client types, request/response handling, error types
 - [`crates/jugaad-cli`](crates/jugaad-cli/) - the `jugaad` command-line binary, built on top of `jugaad-core`
 - [`crates/jugaad-rpc`](crates/jugaad-rpc/) - a `tonic` gRPC server exposing `jugaad-core` to non-Rust frontends. Published at `ghcr.io/am1n1602/jugaad-rpc` (`docker run -p 50051:50051 ghcr.io/am1n1602/jugaad-rpc:latest`), no Rust toolchain needed; see [`clients/`](clients/) for working Python and Node.js example clients against it
-- [`python/`](python/) - `sauda`, a pip package (`pip install sauda`) that bundles the `jugaad-rpc` binary and starts it for you; see its [manual](python/MANUAL.md)
+- [`python/`](python/) - `sauda`, an async Python client (`pip install sauda`) for `jugaad-rpc`; the wheel also installs the server as the `jugaad-rpc` command. See its [manual](python/MANUAL.md)
 
 ## Development
 

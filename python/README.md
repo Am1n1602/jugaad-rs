@@ -1,26 +1,52 @@
 # sauda
 
-NSE market data for Python. A thin client over [`jugaad-rpc`](https://github.com/Am1n1602/jugaad-rs/tree/main/crates/jugaad-rpc), the Rust gRPC server from the [jugaad-rs](https://github.com/Am1n1602/jugaad-rs) monorepo - the wheel bundles the server binary, so there is nothing else to install or run.
+NSE market data for Python. An async client for [`jugaad-rpc`](https://github.com/Am1n1602/jugaad-rs/tree/main/crates/jugaad-rpc), the Rust gRPC server from the [jugaad-rs](https://github.com/Am1n1602/jugaad-rs) monorepo. `sauda` only connects: you run the server (the wheel installs it as the `jugaad-rpc` command, or use the Docker image) and the client takes care of the connection.
 
 ```bash
 pip install sauda
 ```
 
-```python
-from sauda import Client
+Start the server in its own terminal and leave it running:
 
-with Client() as c:                      # starts the bundled server on a loopback port
-    print(c.stock_quote("SBIN")["last_price"])
-    rows = c.stock_history("SBIN", "2026-01-01", "2026-01-31")
-    for q in c.watch_stock_quote("SBIN", interval=5):
-        print(q["last_price"])
-        break
+```bash
+JUGAAD_RPC_ADDR=127.0.0.1:50051 jugaad-rpc
 ```
 
-| Method | Returns |
+Then connect from Python:
+
+```python
+import asyncio
+from sauda import Client
+
+async def main():
+    client = Client()
+    await client.connect()                          # connects to 127.0.0.1:50051
+
+    print((await client.stock_quote("SBIN"))["last_price"])
+    rows = await client.stock_history("SBIN", "2026-01-01", "2026-01-31")
+    async for q in client.watch_stock_quote("SBIN", interval=5):
+        print(q["last_price"])
+        break
+
+    await client.disconnect()                       # the server keeps running
+
+asyncio.run(main())
+```
+
+You decide when to connect and disconnect (in a notebook, connect in one cell and use the client in the cells after it). For a short script, `async with Client() as c:` does both for you. For a server at another address:
+
+```python
+from sauda import Client, ConfigBuilder
+
+config = ConfigBuilder().addr("127.0.0.1:50077").build()    # or ConfigBuilder().from_env()
+client = Client()
+await client.connect(config)
+```
+
+| Method (all `await`ed except the watch) | Returns |
 |---|---|
 | `stock_quote(symbol)` | live quote with a 5-level order book |
-| `watch_stock_quote(symbol, interval=3)` | iterator of live quotes |
+| `watch_stock_quote(symbol, interval=3)` | async iterator of live quotes |
 | `stock_history(symbol, from_date, to_date)` | daily OHLC, volume and delivery rows |
 | `index_history(name, from_date, to_date)` | daily index OHLC |
 | `index_snapshot()` | every NSE index, live |
@@ -30,11 +56,11 @@ with Client() as c:                      # starts the bundled server on a loopba
 | `option_expiries(symbol)` | available expiry dates |
 | `corporate_announcements(from_date, to_date, segment="equities", symbol=None)` | exchange disclosures |
 
-Results are plain dicts and lists of dicts, so `pandas.DataFrame(rows)` works directly. The server stops when the client is closed, and also when your Python process dies (including a hard kill or a notebook kernel restart). `Client.stub` is the raw generated gRPC stub for anything not wrapped above.
+Results are plain dicts and lists of dicts, so `pandas.DataFrame(rows)` works directly. `Client.stub` is the raw generated async gRPC stub for anything not wrapped above.
 
-**Full reference, error handling and troubleshooting: [the manual](https://github.com/Am1n1602/jugaad-rs/blob/main/python/MANUAL.md).**
+**Full reference, running the server (including Docker), configuration, error handling and troubleshooting: [the manual](https://github.com/Am1n1602/jugaad-rs/blob/main/python/MANUAL.md).** Upgrading from 0.1.x? 0.2.0 is async only and no longer starts a server for you, so see [the upgrade notes](https://github.com/Am1n1602/jugaad-rs/blob/main/python/MANUAL.md#upgrading-from-01x).
 
-Wheels: Windows x64, Linux x86_64 (glibc 2.28+), macOS Apple Silicon. Python 3.9+.
+Wheels: Windows x64, Linux x86_64 (glibc 2.28+), macOS Apple Silicon. Other platforms build from the source distribution, which needs Rust 1.88+. Python 3.9+.
 
 ## Development
 
