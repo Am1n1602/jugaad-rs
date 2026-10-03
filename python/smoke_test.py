@@ -11,15 +11,77 @@ import os
 import socket
 import subprocess
 import sysconfig
+import tempfile
 import time
 from contextlib import contextmanager
 
-import grpc
-from grpc import aio
 
-from sauda import DEFAULT_ADDR, Client, ConfigBuilder, _open_channel, _to_py
-from sauda._proto import jugaad_pb2 as pb
-from sauda._proto import jugaad_pb2_grpc
+# --- a server for the Client to connect to: the bundled command, run directly
+def server_binary() -> str:
+    exe = "jugaad-rpc" + (".exe" if os.name == "nt" else "")
+    path = os.path.join(sysconfig.get_path("scripts"), exe)
+    assert os.path.isfile(path), f"the wheel did not install {exe} to {path}"
+    return path
+
+
+@contextmanager
+def running_server(addr):
+    output = tempfile.TemporaryFile()
+    proc = subprocess.Popen(
+        [server_binary()],
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        env={**os.environ, "JUGAAD_RPC_ADDR": addr},
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    host, port = addr.rsplit(":", 1)
+    deadline = time.monotonic() + 10
+    while True:
+        if proc.poll() is not None:
+            # A negative code is the signal that killed it (-4 SIGILL, -11 SIGSEGV).
+            output.seek(0)
+            text = output.read().decode(errors="replace")
+            raise AssertionError(
+                f"the server exited during startup (code {proc.returncode}): {text!r}"
+            )
+        try:
+            socket.create_connection((host, int(port)), timeout=0.2).close()
+            break
+        except OSError:
+            assert time.monotonic() < deadline, "the server never started listening"
+            time.sleep(0.05)
+    try:
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
+        output.close()
+
+
+def free_addr() -> str:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return f"127.0.0.1:{s.getsockname()[1]}"
+
+
+# The bundled server must start before any gRPC code is loaded, which keeps
+# "the binary is broken" apart from anything gRPC does to a process that
+# spawns children: Python 3.9 forks, and gRPC's fork handlers then run.
+with running_server(free_addr()):
+    pass
+
+# This harness spawns servers from a process that already runs gRPC threads, so
+# every spawn runs gRPC's fork handlers. In CI a server once died at startup
+# right after one logged "epoll_wait error: Bad file descriptor"; the children
+# here exec immediately, so the handlers have nothing to protect.
+os.environ.setdefault("GRPC_ENABLE_FORK_SUPPORT", "0")
+
+import grpc  # noqa: E402
+from grpc import aio  # noqa: E402
+
+from sauda import DEFAULT_ADDR, Client, ConfigBuilder, _open_channel, _to_py  # noqa: E402
+from sauda._proto import jugaad_pb2 as pb  # noqa: E402
+from sauda._proto import jugaad_pb2_grpc  # noqa: E402
 
 # --- protobuf -> dict conversion
 q = pb.StockQuote(symbol="X", total_traded_volume=2**40, delivery_pct=1.5)
@@ -69,45 +131,6 @@ with env(SAUDA_ADDR="", SAUDA_CONNECT_TIMEOUT=""):
     assert (cfg.addr, cfg.connect_timeout) == ("kept", 15.0)
 with env(SAUDA_CONNECT_TIMEOUT="soon"):
     raises(ValueError, lambda: ConfigBuilder().from_env())
-
-
-# --- a server for the Client to connect to: the bundled command, run directly
-def server_binary() -> str:
-    exe = "jugaad-rpc" + (".exe" if os.name == "nt" else "")
-    path = os.path.join(sysconfig.get_path("scripts"), exe)
-    assert os.path.isfile(path), f"the wheel did not install {exe} to {path}"
-    return path
-
-
-@contextmanager
-def running_server(addr):
-    proc = subprocess.Popen(
-        [server_binary()],
-        stdout=subprocess.DEVNULL,
-        env={**os.environ, "JUGAAD_RPC_ADDR": addr},
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    host, port = addr.rsplit(":", 1)
-    deadline = time.monotonic() + 10
-    while True:
-        assert proc.poll() is None, "the server exited during startup"
-        try:
-            socket.create_connection((host, int(port)), timeout=0.2).close()
-            break
-        except OSError:
-            assert time.monotonic() < deadline, "the server never started listening"
-            time.sleep(0.05)
-    try:
-        yield proc
-    finally:
-        proc.kill()
-        proc.wait()
-
-
-def free_addr() -> str:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return f"127.0.0.1:{s.getsockname()[1]}"
 
 
 async def expect_invalid(awaitable):
