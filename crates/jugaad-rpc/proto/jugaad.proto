@@ -47,6 +47,39 @@ service Jugaad {
   // specifically SEBI insider-trading filings (no confirmed NSE endpoint
   // for those yet).
   rpc GetCorporateAnnouncements(CorporateAnnouncementsRequest) returns (CorporateAnnouncementsResponse);
+
+  // Whole-market cash bhavcopy for one trading day, as NSE's own CSV text.
+  // NSE changed the file format on 2024-07-08; the server picks the right one
+  // for the date, and the columns differ between the two.
+  rpc GetBhavcopy(BhavcopyRequest) returns (BhavcopyResponse);
+
+  // F&O bhavcopy for one trading day, as NSE's own CSV text (same format
+  // switch as GetBhavcopy). The file is 5-6 MB, over gRPC's default 4 MiB
+  // message cap, so it is streamed in chunks: concatenate the chunks' bytes
+  // and decode them as UTF-8 to get the whole file.
+  rpc GetFoBhavcopy(BhavcopyRequest) returns (stream CsvChunk);
+
+  // Daily price and open-interest history for one F&O contract (a futures
+  // series, or one option strike and side) over a date range.
+  rpc GetDerivativesHistory(DerivativesHistoryRequest) returns (DerivativesHistoryResponse);
+
+  // A stock's intraday or historical price chart.
+  rpc GetStockChart(StockChartRequest) returns (StockChart);
+
+  // An index's intraday or historical price chart.
+  rpc GetIndexChart(IndexChartRequest) returns (IndexChart);
+
+  // Top gainers and losers across NSE's seven index/security scopes.
+  rpc GetMarketMovers(MarketMoversRequest) returns (MarketMoversResponse);
+
+  // Most active equities by traded value and by traded volume.
+  rpc GetMostActiveEquities(MostActiveEquitiesRequest) returns (MostActiveEquitiesResponse);
+
+  // Stocks at a new 52-week high or low.
+  rpc GetFiftyTwoWeek(FiftyTwoWeekRequest) returns (FiftyTwoWeekResponse);
+
+  // NSE trading holidays across every market segment.
+  rpc GetHolidayList(HolidayListRequest) returns (HolidayListResponse);
 }
 
 message StockQuoteRequest {
@@ -297,4 +330,231 @@ message CorporateAnnouncementRow {
 
 message CorporateAnnouncementsResponse {
   repeated CorporateAnnouncementRow rows = 1;
+}
+
+// ---- bhavcopy (NSE's own CSV text; there is no typed row model) ----
+
+message BhavcopyRequest {
+  string date = 1; // "YYYY-MM-DD"
+}
+
+message BhavcopyResponse {
+  string csv = 1;
+}
+
+// One piece of a CSV file. Pieces are split at arbitrary byte positions, so
+// concatenate all the `data` bytes before decoding as UTF-8.
+message CsvChunk {
+  bytes data = 1;
+}
+
+// ---- derivatives history ----
+
+enum Instrument {
+  INSTRUMENT_UNSPECIFIED = 0;
+  INSTRUMENT_FUT_IDX = 1; // index futures
+  INSTRUMENT_FUT_STK = 2; // stock futures
+  INSTRUMENT_OPT_IDX = 3; // index options
+  INSTRUMENT_OPT_STK = 4; // stock options
+}
+
+enum OptionType {
+  OPTION_TYPE_UNSPECIFIED = 0;
+  OPTION_TYPE_CALL = 1;
+  OPTION_TYPE_PUT = 2;
+}
+
+message DerivativesHistoryRequest {
+  string symbol = 1;    // e.g. "NIFTY" or "RELIANCE"
+  string from_date = 2; // "YYYY-MM-DD"
+  string to_date = 3;   // "YYYY-MM-DD"
+  string expiry = 4;    // contract expiry, "YYYY-MM-DD"
+  Instrument instrument = 5;
+  // Both required for option instruments and rejected for futures.
+  optional double strike_price = 6;
+  OptionType option_type = 7;
+}
+
+message DerivativesHistoryRow {
+  string instrument = 1;     // NSE's code, e.g. "FUTIDX", "OPTSTK"
+  string symbol = 2;
+  string expiry = 3;         // "YYYY-MM-DD"
+  double strike_price = 4;   // 0 for futures
+  string option_type = 5;    // "CE", "PE", or "XX" for futures
+  string date = 6;           // "YYYY-MM-DD"
+  double open = 7;
+  double high = 8;
+  double low = 9;
+  double close = 10;
+  double last_traded_price = 11;
+  double previous_close = 12;
+  double settle_price = 13;
+  uint64 volume = 14;
+  double value = 15;
+  uint64 open_interest = 16;
+  int64 change_in_open_interest = 17; // can be negative
+  uint64 market_lot = 18;
+  optional double underlying_value = 19; // absent for index instruments
+}
+
+message DerivativesHistoryResponse {
+  repeated DerivativesHistoryRow rows = 1;
+}
+
+// ---- price charts ----
+
+enum ChartPeriod {
+  CHART_PERIOD_UNSPECIFIED = 0; // treated as ONE_DAY
+  CHART_PERIOD_ONE_DAY = 1;
+  CHART_PERIOD_ONE_WEEK = 2;
+  CHART_PERIOD_ONE_MONTH = 3;
+  CHART_PERIOD_ONE_YEAR = 4;
+  CHART_PERIOD_FIVE_YEARS = 5;
+}
+
+message StockChartRequest {
+  string symbol = 1;
+  ChartPeriod period = 2;
+}
+
+message StockChartPoint {
+  string timestamp = 1; // IST wall-clock time, "YYYY-MM-DDTHH:MM:SS"
+  double price = 2;
+  string session = 3;
+  // Only populated for ONE_DAY; absent for the longer windows.
+  optional double change = 4;
+  optional double percent_change = 5;
+}
+
+message StockChart {
+  string identifier = 1;
+  string name = 2;
+  double close_price = 3;
+  // Newest first, for every period. NSE itself sends these oldest-first for
+  // ONE_DAY and newest-first otherwise, so the server sorts them.
+  repeated StockChartPoint points = 4;
+}
+
+enum IndexChartPeriod {
+  INDEX_CHART_PERIOD_UNSPECIFIED = 0; // treated as ONE_DAY
+  INDEX_CHART_PERIOD_ONE_DAY = 1;
+  INDEX_CHART_PERIOD_ONE_WEEK = 2;
+  INDEX_CHART_PERIOD_ONE_MONTH = 3;
+  INDEX_CHART_PERIOD_THREE_MONTHS = 4;
+  INDEX_CHART_PERIOD_SIX_MONTHS = 5;
+  INDEX_CHART_PERIOD_ONE_YEAR = 6;
+  INDEX_CHART_PERIOD_FIVE_YEARS = 7;
+}
+
+message IndexChartRequest {
+  string name = 1; // e.g. "NIFTY 50"
+  IndexChartPeriod period = 2;
+}
+
+message IndexChartPoint {
+  string timestamp = 1; // IST wall-clock time, "YYYY-MM-DDTHH:MM:SS"
+  double price = 2;
+  string session = 3;
+  double change = 4;
+  double percent_change = 5;
+}
+
+message IndexChart {
+  string identifier = 1;
+  string name = 2;
+  double close_price = 3;
+  // Newest first, for every period. NSE itself sends these oldest-first, so
+  // the server reverses them.
+  repeated IndexChartPoint points = 4;
+}
+
+// ---- live analysis: movers, most active, 52-week, holidays ----
+
+message MarketMoversRequest {}
+
+message MarketMoverRow {
+  string scope = 1;      // which of NSE's seven index/security buckets
+  string direction = 2;  // gainers or losers
+  string symbol = 3;
+  string series = 4;
+  double open = 5;
+  double high = 6;
+  double low = 7;
+  double last_price = 8;
+  double previous_close = 9;
+  double change = 10;
+  double percent_change = 11;
+  uint64 traded_quantity = 12;
+  double turnover = 13;
+  string market_type = 14;
+  optional string ca_ex_date = 15;  // upcoming corporate action, if any
+  optional string ca_purpose = 16;
+}
+
+message MarketMoversResponse {
+  repeated MarketMoverRow rows = 1;
+}
+
+message MostActiveEquitiesRequest {}
+
+message MostActiveEquityRow {
+  string ranking = 1; // "value" or "volume"
+  string symbol = 2;
+  string identifier = 3;
+  double last_price = 4;
+  double percent_change = 5;
+  uint64 quantity_traded = 6;
+  uint64 total_traded_volume = 7;
+  double total_traded_value = 8;
+  double previous_close = 9;
+  optional string ex_date = 10;
+  optional string purpose = 11;
+  double year_high = 12;
+  double year_low = 13;
+  double change = 14;
+  double open = 15;
+  double day_high = 16;
+  double day_low = 17;
+  string last_update_time = 18;
+}
+
+message MostActiveEquitiesResponse {
+  repeated MostActiveEquityRow rows = 1;
+}
+
+message FiftyTwoWeekRequest {}
+
+message FiftyTwoWeekRow {
+  string direction = 1; // "high" or "low"
+  string symbol = 2;
+  string company_name = 3;
+  string series = 4;
+  double last_price = 5;
+  double change = 6;
+  double percent_change = 7;
+  double new_52_week_value = 8;
+  double previous_52_week_value = 9;
+  double previous_close = 10;
+  // Absent for a recently listed stock with no earlier 52-week extreme.
+  optional string previous_52_week_date = 11; // "YYYY-MM-DD"
+}
+
+message FiftyTwoWeekResponse {
+  repeated FiftyTwoWeekRow rows = 1;
+}
+
+message HolidayListRequest {}
+
+message HolidayRow {
+  string segment = 1;      // NSE's code, e.g. "CM" (capital market), "FO", "CD"
+  string date = 2;         // "YYYY-MM-DD"
+  string week_day = 3;
+  string description = 4;
+  optional string morning_session = 5;  // "Open" or "Closed" when set
+  optional string evening_session = 6;
+  uint32 serial_number = 7;
+}
+
+message HolidayListResponse {
+  repeated HolidayRow rows = 1;
 }

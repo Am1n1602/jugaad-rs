@@ -8,6 +8,8 @@ one is up to you (the `jugaad-rpc` command or the Docker image).
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import os
 import time
 from collections.abc import AsyncIterator
@@ -127,6 +129,53 @@ _OPTION_CHAIN_KINDS = {
     "index": pb.OPTION_CHAIN_KIND_INDEX,
     "equity": pb.OPTION_CHAIN_KIND_EQUITY,
 }
+
+_INSTRUMENTS = {
+    "futidx": pb.INSTRUMENT_FUT_IDX,
+    "futstk": pb.INSTRUMENT_FUT_STK,
+    "optidx": pb.INSTRUMENT_OPT_IDX,
+    "optstk": pb.INSTRUMENT_OPT_STK,
+}
+
+_OPTION_TYPES = {
+    "call": pb.OPTION_TYPE_CALL,
+    "ce": pb.OPTION_TYPE_CALL,
+    "put": pb.OPTION_TYPE_PUT,
+    "pe": pb.OPTION_TYPE_PUT,
+}
+
+_CHART_PERIODS = {
+    "1d": pb.CHART_PERIOD_ONE_DAY,
+    "1w": pb.CHART_PERIOD_ONE_WEEK,
+    "1m": pb.CHART_PERIOD_ONE_MONTH,
+    "1y": pb.CHART_PERIOD_ONE_YEAR,
+    "5y": pb.CHART_PERIOD_FIVE_YEARS,
+}
+
+_INDEX_CHART_PERIODS = {
+    "1d": pb.INDEX_CHART_PERIOD_ONE_DAY,
+    "1w": pb.INDEX_CHART_PERIOD_ONE_WEEK,
+    "1m": pb.INDEX_CHART_PERIOD_ONE_MONTH,
+    "3m": pb.INDEX_CHART_PERIOD_THREE_MONTHS,
+    "6m": pb.INDEX_CHART_PERIOD_SIX_MONTHS,
+    "1y": pb.INDEX_CHART_PERIOD_ONE_YEAR,
+    "5y": pb.INDEX_CHART_PERIOD_FIVE_YEARS,
+}
+
+
+def _choice(table: dict, value, name: str, options: str):
+    try:
+        return table[str(value).lower().replace("-", "").replace("_", "")]
+    except KeyError:
+        raise ValueError(f"{name} must be {options}, got {value!r}") from None
+
+
+def _csv_rows(text: str) -> list[dict]:
+    # NSE's old-format files end every line with a comma, which csv reads as an
+    # extra column with an empty name; drop it.
+    return [
+        {k: v for k, v in row.items() if k} for row in csv.DictReader(io.StringIO(text))
+    ]
 
 
 class Client:
@@ -272,3 +321,92 @@ class Client:
             to_date=str(to_date),
         )
         return _rows(await self.stub.GetCorporateAnnouncements(request))
+
+    async def bhavcopy(self, date) -> list[dict]:
+        """Whole-market cash bhavcopy for one trading day. Rows are NSE's own
+        CSV columns with every value a string; the columns differ before and
+        after 2024-07-08, when NSE changed the file format."""
+        response = await self.stub.GetBhavcopy(pb.BhavcopyRequest(date=str(date)))
+        return _csv_rows(response.csv)
+
+    async def fo_bhavcopy(self, date) -> list[dict]:
+        """F&O bhavcopy for one trading day, same row shape as `bhavcopy`. The
+        file is 5-6 MB, which the server streams in chunks."""
+        data = bytearray()
+        async for chunk in self.stub.GetFoBhavcopy(pb.BhavcopyRequest(date=str(date))):
+            data += chunk.data
+        return _csv_rows(data.decode("utf-8"))
+
+    async def derivatives_history(
+        self,
+        symbol: str,
+        from_date,
+        to_date,
+        expiry,
+        instrument: str,
+        strike_price: float | None = None,
+        option_type: str | None = None,
+    ) -> list[dict]:
+        """Daily history for one F&O contract. `instrument` is "fut-idx",
+        "fut-stk", "opt-idx" or "opt-stk". Options need `strike_price` and
+        `option_type` ("call" or "put"); futures must not have them."""
+        request = pb.DerivativesHistoryRequest(
+            symbol=symbol,
+            from_date=str(from_date),
+            to_date=str(to_date),
+            expiry=str(expiry),
+            instrument=_choice(
+                _INSTRUMENTS,
+                instrument,
+                "instrument",
+                '"fut-idx", "fut-stk", "opt-idx" or "opt-stk"',
+            ),
+            strike_price=strike_price,
+            option_type=None
+            if option_type is None
+            else _choice(_OPTION_TYPES, option_type, "option_type", '"call" or "put"'),
+        )
+        return _rows(await self.stub.GetDerivativesHistory(request))
+
+    async def stock_chart(self, symbol: str, period: str = "1d") -> dict:
+        """Price chart: `{"identifier", "name", "close_price", "points"}`, with
+        the points newest first. `period` is "1d", "1w", "1m", "1y" or "5y"."""
+        request = pb.StockChartRequest(
+            symbol=symbol,
+            period=_choice(
+                _CHART_PERIODS, period, "period", '"1d", "1w", "1m", "1y" or "5y"'
+            ),
+        )
+        return _to_py(await self.stub.GetStockChart(request))
+
+    async def index_chart(self, name: str, period: str = "1d") -> dict:
+        """Index price chart, same shape as `stock_chart`, points newest first.
+        `period` is "1d", "1w", "1m", "3m", "6m", "1y" or "5y"."""
+        request = pb.IndexChartRequest(
+            name=name,
+            period=_choice(
+                _INDEX_CHART_PERIODS,
+                period,
+                "period",
+                '"1d", "1w", "1m", "3m", "6m", "1y" or "5y"',
+            ),
+        )
+        return _to_py(await self.stub.GetIndexChart(request))
+
+    async def market_movers(self) -> list[dict]:
+        """Top gainers and losers across NSE's seven index/security scopes."""
+        return _rows(await self.stub.GetMarketMovers(pb.MarketMoversRequest()))
+
+    async def most_active_equities(self) -> list[dict]:
+        """Most active equities by traded value and by traded volume."""
+        return _rows(
+            await self.stub.GetMostActiveEquities(pb.MostActiveEquitiesRequest())
+        )
+
+    async def fifty_two_week(self) -> list[dict]:
+        """Stocks at a new 52-week high or low."""
+        return _rows(await self.stub.GetFiftyTwoWeek(pb.FiftyTwoWeekRequest()))
+
+    async def holiday_list(self) -> list[dict]:
+        """NSE trading holidays across every market segment."""
+        return _rows(await self.stub.GetHolidayList(pb.HolidayListRequest()))

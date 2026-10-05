@@ -9,6 +9,10 @@ Add an entry under **Unreleased** with every user-visible change; it moves under
 
 ## Unreleased
 
+### Added
+
+- Nine more `jugaad-rpc` RPCs, 19 in all: `GetBhavcopy`, `GetFoBhavcopy`, `GetDerivativesHistory`, `GetStockChart`, `GetIndexChart`, `GetMarketMovers`, `GetMostActiveEquities`, `GetFiftyTwoWeek` and `GetHolidayList`. The two bhavcopy RPCs return NSE's own CSV text; `GetFoBhavcopy` is server-streaming, in 1 MiB chunks, because the file (5-6 MB) is larger than gRPC's default 4 MiB message cap. `GetStockChart` and `GetIndexChart` always return their points newest first, whichever way NSE sent them (the `jugaad` command-line tool keeps NSE's own order). These reach the Docker image with the next `v*` release.
+
 ### Changed
 
 - The workspace version is now `0.2.2`. It stayed at `0.2.0` through the `v0.2.1` and `v0.2.2` tags, so binaries from those two releases report `jugaad 0.2.0` from `--version`.
@@ -57,6 +61,19 @@ First tagged release.
 ## `sauda`
 
 The wheel bundles the `jugaad-rpc` server as built from the tagged commit, so server changes reach Python users only with a new `py-v*` release.
+
+### 0.2.1 - 2026-10-04
+
+#### Added
+
+- Nine methods for the new server RPCs: `bhavcopy`, `fo_bhavcopy`, `derivatives_history`, `stock_chart`, `index_chart`, `market_movers`, `most_active_equities`, `fifty_two_week` and `holiday_list`.
+- The bhavcopy methods return NSE's CSV columns as dicts of strings, in either file format (the one before 2024-07-08 and the one after). `fo_bhavcopy` receives a streamed file of tens of thousands of rows and reassembles it.
+- `stock_chart` and `index_chart` return their points newest first for every period, like `derivatives_history`.
+- These methods need the server bundled in this release or later; a server from 0.2.0 or the current Docker image answers `UNIMPLEMENTED`.
+
+#### Changed
+
+- The package metadata now names its author, Am1n1602 (Aman Gautam), which PyPI showed as None for earlier releases.
 
 ### 0.2.0 - 2026-10-03
 

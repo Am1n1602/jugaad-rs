@@ -4,11 +4,12 @@ build-backend = "maturin"
 
 [project]
 name = "sauda"
-version = "0.2.0"
+version = "0.2.1"
 description = "NSE market data for Python, backed by a bundled Rust gRPC server"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
+authors = [{ name = "Am1n1602 (Aman Gautam)" }]
 dependencies = [
     # Floors match the pinned grpcio-tools in requirements-gen.txt - the
     # generated stubs refuse to import under an older grpcio/protobuf, and

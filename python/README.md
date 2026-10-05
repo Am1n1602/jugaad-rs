@@ -63,6 +63,15 @@ await client.connect(config)
 | `option_chain(symbol, kind="index", expiry=None)` | option chain rows with call and put legs |
 | `option_expiries(symbol)` | available expiry dates |
 | `corporate_announcements(from_date, to_date, segment="equities", symbol=None)` | exchange disclosures |
+| `bhavcopy(date)` | whole-market cash bhavcopy for a day (NSE's CSV columns, all strings) |
+| `fo_bhavcopy(date)` | F&O bhavcopy for a day (streamed by the server; tens of thousands of rows) |
+| `derivatives_history(symbol, from_date, to_date, expiry, instrument, strike_price=None, option_type=None)` | daily history of one futures or options contract |
+| `stock_chart(symbol, period="1d")` | a stock's price chart, `"1d"` to `"5y"` |
+| `index_chart(name, period="1d")` | an index's price chart, `"1d"` to `"5y"` |
+| `market_movers()` | top gainers and losers across seven scopes |
+| `most_active_equities()` | most active equities by value and by volume |
+| `fifty_two_week()` | stocks at a new 52-week high or low |
+| `holiday_list()` | trading holidays for every market segment |
 
 Results are plain dicts and lists of dicts, so `pandas.DataFrame(rows)` works directly. `Client.stub` is the raw generated async gRPC stub for anything not wrapped above.
 

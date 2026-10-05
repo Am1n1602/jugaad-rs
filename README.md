@@ -193,7 +193,7 @@ method's own doc comment.
 
 ## Python and other languages
 
-`jugaad-rpc` is a gRPC server over `jugaad-core`, so anything that speaks gRPC can use it. It exposes ten RPCs: `GetStockQuote`, `WatchStockQuote` (streaming), `GetStockHistory`, `GetIndexHistory`, `GetIndexSnapshot`, `GetLargeDeals`, `GetMarketStatus`, `GetOptionChain`, `GetOptionExpiries` and `GetCorporateAnnouncements`. The full definitions are in [`jugaad.proto`](crates/jugaad-rpc/proto/jugaad.proto).
+`jugaad-rpc` is a gRPC server over `jugaad-core`, so anything that speaks gRPC can use it. It exposes nineteen RPCs: `GetStockQuote`, `WatchStockQuote` (streaming), `GetStockHistory`, `GetIndexHistory`, `GetIndexSnapshot`, `GetLargeDeals`, `GetMarketStatus`, `GetOptionChain`, `GetOptionExpiries`, `GetCorporateAnnouncements`, `GetBhavcopy`, `GetFoBhavcopy` (streaming), `GetDerivativesHistory`, `GetStockChart`, `GetIndexChart`, `GetMarketMovers`, `GetMostActiveEquities`, `GetFiftyTwoWeek` and `GetHolidayList`. The full definitions are in [`jugaad.proto`](crates/jugaad-rpc/proto/jugaad.proto).
 
 **Python:** [`sauda`](python/MANUAL.md) is an async client for it. The wheel also installs the server as the `jugaad-rpc` command, so Docker is optional. You run the server and `sauda` connects to it. On macOS and Linux:
 
