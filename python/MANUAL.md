@@ -1,6 +1,6 @@
 # sauda manual
 
-`sauda` gives Python access to NSE market data: live quotes, history, option chains, index snapshots, large deals, market status and corporate announcements. It is an async client for a Rust server, `jugaad-rpc`, which does the actual NSE work. `sauda` only connects to that server: you run it, and the client assumes it is up. The wheel bundles the server as the `jugaad-rpc` command so you do not need Docker or Rust to run it.
+`sauda` gives Python access to NSE market data: live quotes, history, bhavcopy, option chains, derivatives history, price charts, index snapshots, market movers, large deals, market status, holidays and corporate announcements. It is an async client for a Rust server, `jugaad-rpc`, which does the actual NSE work. `sauda` only connects to that server: you run it, and the client assumes it is up. The wheel bundles the server as the `jugaad-rpc` command so you do not need Docker or Rust to run it.
 
 - [Install](#install)
 - [Quickstart](#quickstart)
@@ -252,6 +252,67 @@ Exchange disclosures (board meetings, credit ratings, press releases and similar
 
 Fields: `company_name`, `category`, `description`, `has_xbrl`, `announcement_time` (ISO 8601), `sequence_id`, and the optional `symbol`, `isin`, `industry`, `attachment_url`, `file_size`.
 
+### Bhavcopy, derivatives history, charts and live analysis
+
+These nine methods were added in `sauda` 0.2.1 and need a server from that release or later. The `jugaad-rpc` command in the wheel has them; the Docker image gets them with its first release after 0.2.2. Against an older server they raise `UNIMPLEMENTED`.
+
+#### `await Client.bhavcopy(date) -> list[dict]`
+
+Whole-market cash bhavcopy, NSE's end-of-day price file, for one trading day. Rows are NSE's own CSV columns and **every value is a string**; convert what you need, for example with `pandas.DataFrame(rows)` and `pd.to_numeric`. The columns differ before and after 2024-07-08, when NSE changed the file format, and the server picks the right file for the date:
+
+- From 2024-07-08: 34 columns, among them `TradDt`, `TckrSymb`, `SctySrs`, `OpnPric`, `HghPric`, `LwPric` and `ClsPric`.
+- Before: 13 columns, `SYMBOL`, `SERIES`, `OPEN`, `HIGH`, `LOW`, `CLOSE`, `LAST`, `PREVCLOSE`, `TOTTRDQTY`, `TOTTRDVAL`, `TIMESTAMP`, `TOTALTRADES` and `ISIN`.
+
+A weekend, a holiday, or a date NSE has not published yet raises `NOT_FOUND`.
+
+#### `await Client.fo_bhavcopy(date) -> list[dict]`
+
+The F&O bhavcopy for one trading day, with the same row shape, format switch and errors as `bhavcopy`. It is much bigger: about 33,000 rows for a recent day and about 57,000 for 2024-01-02. The server streams it in 1 MiB chunks, so even a client with default gRPC limits can receive it; `sauda` reassembles it for you. Before 2024-07-08 the columns are `INSTRUMENT`, `SYMBOL`, `EXPIRY_DT`, `STRIKE_PR`, `OPTION_TYP`, `OPEN`, `HIGH`, `LOW`, `CLOSE`, `SETTLE_PR`, `CONTRACTS`, `VAL_INLAKH`, `OPEN_INT`, `CHG_IN_OI` and `TIMESTAMP`; from that date they use the same 34-column layout as the cash file.
+
+#### `await Client.derivatives_history(symbol, from_date, to_date, expiry, instrument, strike_price=None, option_type=None) -> list[dict]`
+
+Daily history for **one F&O contract**, newest first.
+
+- `instrument` is `"fut-idx"`, `"fut-stk"`, `"opt-idx"` or `"opt-stk"` (case and `-` or `_` are ignored, so `"OPT_IDX"` works).
+- Options need `strike_price` and `option_type` (`"call"` or `"put"`). Futures must not have them. A mismatch raises `INVALID_ARGUMENT`, and an unrecognised `instrument` or `option_type` raises `ValueError`.
+- `expiry` is the contract's expiry date.
+
+Fields: `instrument` (NSE's code, such as `"FUTIDX"` or `"OPTSTK"`), `symbol`, `expiry`, `strike_price` (0 for futures), `option_type` (`"CE"`, `"PE"`, or `"XX"` for futures), `date`, `open`, `high`, `low`, `close`, `last_traded_price`, `previous_close`, `settle_price`, `volume`, `value`, `open_interest`, `change_in_open_interest` (can be negative), `market_lot`, and `underlying_value` (`None` for index instruments).
+
+#### `await Client.stock_chart(symbol, period="1d") -> dict`
+
+A stock's price chart. `period` is `"1d"`, `"1w"`, `"1m"`, `"1y"` or `"5y"`; NSE rejects anything else, so other values raise `ValueError`. Returns `{"identifier", "name", "close_price", "points"}`, where each point has `timestamp` (IST wall-clock time, `"YYYY-MM-DDTHH:MM:SS"`), `price`, `session` (NSE's session code, such as `"NM"`), and `change` and `percent_change`, which are only set for `"1d"` and `None` otherwise.
+
+Points are **always newest first**, for every period. (The server sorts them: NSE itself sends a `"1d"` chart oldest-first and the longer ones newest-first, and the `jugaad` command-line tool keeps NSE's order.) A `"1d"` chart has about 400 intraday points, a `"5y"` chart about 1,240 daily ones.
+
+#### `await Client.index_chart(name, period="1d") -> dict`
+
+An index's price chart, e.g. `"NIFTY 50"`. Same return shape as `stock_chart`, except `change` and `percent_change` are always numbers (0 for the longer periods). `period` is `"1d"`, `"1w"`, `"1m"`, `"3m"`, `"6m"`, `"1y"` or `"5y"`, and points are **newest first** for every period, the same as `stock_chart` (NSE sends index charts oldest-first, and the server reverses them).
+
+#### `await Client.market_movers() -> list[dict]`
+
+Top gainers and losers, flattened into one list with one row per stock per bucket.
+
+Fields: `scope` (one of `"NIFTY"`, `"BANKNIFTY"`, `"NIFTYNEXT50"`, `"FOSec"`, `"allSec"`, `"SecGtr20"`, `"SecLwr20"`), `direction` (`"gainers"` or `"losers"`), `symbol`, `series`, `open`, `high`, `low`, `last_price`, `previous_close`, `change`, `percent_change`, `traded_quantity`, `turnover`, `market_type`, and `ca_ex_date` and `ca_purpose` (an upcoming corporate action, `None` when there is none).
+
+#### `await Client.most_active_equities() -> list[dict]`
+
+The most active equities, 20 ranked by traded value and 20 by traded volume.
+
+Fields: `ranking` (`"value"` or `"volume"`), `symbol`, `identifier`, `last_price`, `percent_change`, `quantity_traded`, `total_traded_volume`, `total_traded_value`, `previous_close`, `year_high`, `year_low`, `change`, `open`, `day_high`, `day_low`, `last_update_time`, and `ex_date` and `purpose` (`None` when there is no upcoming corporate action).
+
+#### `await Client.fifty_two_week() -> list[dict]`
+
+Stocks at a new 52-week high or low. The count changes through the day and from day to day (93 highs and 289 lows in one sample).
+
+Fields: `direction` (`"high"` or `"low"`), `symbol`, `company_name`, `series`, `last_price`, `change`, `percent_change`, `new_52_week_value`, `previous_52_week_value`, `previous_close`, and `previous_52_week_date`, which is `None` for a recently listed stock with no earlier extreme.
+
+#### `await Client.holiday_list() -> list[dict]`
+
+NSE trading holidays, one row per market segment and date, sorted by date within each segment.
+
+Fields: `segment` (NSE's code: `"CM"` capital market, `"FO"` derivatives, `"CD"` currency, `"COM"` commodity, and eight more such as `"MF"` and `"IRD"`), `date`, `week_day`, `description`, `morning_session` and `evening_session` (`"Open"` or `"Closed"` where NSE gives them, otherwise `None`), and `serial_number`.
+
 ### Raw access
 
 `Client.stub` is the generated async gRPC stub and exposes every RPC the server offers, returning raw protobuf messages; it raises `RuntimeError` until you connect. The request and response classes are in `sauda._proto.jugaad_pb2`; that path is internal and may change, so prefer the methods above where one exists. `Client.stub` already allows large responses; if you build your own gRPC channel to the server, set `grpc.max_receive_message_length` yourself (see [Errors](#errors)).
@@ -261,9 +322,10 @@ Fields: `company_name`, `category`, `description`, `has_xbrl`, `announcement_tim
 | You see | Meaning |
 |---|---|
 | `grpc.RpcError` with `.code()` = `INVALID_ARGUMENT` | A date was not `YYYY-MM-DD`. `.details()` names the argument. |
-| `grpc.RpcError` with `NOT_FOUND` | `stock_quote`, `watch_stock_quote` or `option_chain` could not find the symbol, or NSE had no data for it. |
+| `grpc.RpcError` with `NOT_FOUND` | `stock_quote`, `watch_stock_quote` or `option_chain` could not find the symbol, or NSE had no data for it; or `bhavcopy` / `fo_bhavcopy` was asked for a date NSE has not published (a weekend, a holiday, or too recent). |
 | `grpc.RpcError` with `UNAVAILABLE` | NSE has blocked the session (its bot protection), or the server went away while a call was in flight. Wait a while before retrying, and check the server is still running. |
 | `grpc.RpcError` with `RESOURCE_EXHAUSTED` | A response was larger than the receive limit ("Received message larger than max"). `sauda` 0.1.3 and later never hits this on its own connection; upgrade if you see it. On a gRPC channel you built yourself, set `grpc.max_receive_message_length` (to `-1` for unlimited). |
+| `grpc.RpcError` with `UNIMPLEMENTED` | The server is older than the client and lacks the method you called. The bhavcopy, derivatives-history, chart and live-analysis methods need a server from `sauda` 0.2.1 or later: use the `jugaad-rpc` command from the same `sauda` install, or a newer Docker image. |
 | `grpc.RpcError` with `INTERNAL` | Any other upstream failure (network error, unexpected NSE response). `.details()` has the message. |
 | `RuntimeError` | A method was called before `connect()` or after `disconnect()`, or `connect()` was called twice in a row. |
 | `TimeoutError` | No server became ready at the address within `connect_timeout`: nothing is listening there. The message suggests how to start one. |
@@ -285,6 +347,8 @@ except grpc.RpcError as e:
 **`pip` takes minutes, or fails with a build error.** On a platform without a wheel (see [Install](#install)) pip builds the server from the source distribution with Cargo, which needs Rust 1.88 or newer. Install it from [rustup.rs](https://rustup.rs) and retry. If pip reports that no version matches instead, your Python is older than 3.9.
 
 **`TimeoutError: no server became ready at ...`.** Nothing is listening at that address. Start the server (see [Running the server](#running-the-server)) and check that the address matches: the client's default is `127.0.0.1:50051`, so a server started on another address needs `ConfigBuilder().addr(...)` or `SAUDA_ADDR`. For Docker, the port must be published (`-p 127.0.0.1:50051:50051`).
+
+**`jugaad-rpc` stops with "Only one usage of each socket address" or "Address already in use".** Something is already listening on that port, often an earlier `jugaad-rpc` or a Docker container. Stop it, or give the new server another port with `JUGAAD_RPC_ADDR` and point the client at it with `SAUDA_ADDR` or `ConfigBuilder().addr(...)`. A client cannot tell which server answers: if a call raises `UNIMPLEMENTED` right after you started a newer server, an older one is probably still holding the port. On Windows, `Get-NetTCPConnection -LocalPort 50051 -State Listen` shows the owning process.
 
 **`RuntimeError: not connected`.** Call `await client.connect()` first, or use `async with Client() as c:`.
 

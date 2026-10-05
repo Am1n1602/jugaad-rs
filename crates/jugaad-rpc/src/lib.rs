@@ -1,12 +1,19 @@
-use chrono::NaiveDate;
+use std::cmp::Reverse;
+
+use chrono::{NaiveDate, NaiveDateTime};
 use jugaad_core::nse::{
+    ChartData as CoreChartData, ChartPeriod as CoreChartPeriod,
     CorporateAnnouncementRow as CoreCorporateAnnouncementRow,
-    IndexHistoryRow as CoreIndexHistoryRow, IndexSnapshotRow as CoreIndexSnapshotRow,
-    LargeDealRow as CoreLargeDealRow, MarketSegmentStatus as CoreMarketSegmentStatus,
-    NseCorporateAnnouncements, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
+    DerivativeHistoryRow as CoreDerivativeHistoryRow, FiftyTwoWeekRow as CoreFiftyTwoWeekRow,
+    HolidayRow as CoreHolidayRow, IndexChartData as CoreIndexChartData,
+    IndexChartPeriod as CoreIndexChartPeriod, IndexHistoryRow as CoreIndexHistoryRow,
+    IndexSnapshotRow as CoreIndexSnapshotRow, Instrument as CoreInstrument,
+    LargeDealRow as CoreLargeDealRow, MarketMoverRow as CoreMarketMoverRow,
+    MarketSegmentStatus as CoreMarketSegmentStatus, MostActiveEquityRow as CoreMostActiveEquityRow,
+    NseArchives, NseCorporateAnnouncements, NseHistory, NseIndexHistory, NseLiveMarket, NseQuote,
     OptionChainKind as CoreOptionChainKind, OptionChainRow as CoreOptionChainRow,
-    OptionLeg as CoreOptionLeg, OrderBook as CoreOrderBook, StockHistoryRow as CoreStockHistoryRow,
-    StockQuote as CoreStockQuote,
+    OptionLeg as CoreOptionLeg, OptionType as CoreOptionType, OrderBook as CoreOrderBook,
+    StockHistoryRow as CoreStockHistoryRow, StockQuote as CoreStockQuote,
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -19,19 +26,31 @@ pub mod jugaad {
 use jugaad::jugaad_server::Jugaad;
 pub use jugaad::jugaad_server::JugaadServer;
 use jugaad::{
-    CorporateAnnouncementRow, CorporateAnnouncementsRequest, CorporateAnnouncementsResponse,
-    IndexHistoryRequest, IndexHistoryResponse, IndexHistoryRow, IndexSnapshotRequest,
-    IndexSnapshotResponse, IndexSnapshotRow, LargeDealRow, LargeDealsRequest, LargeDealsResponse,
-    MarketSegmentStatus, MarketStatusRequest, MarketStatusResponse, OptionChainKind,
+    BhavcopyRequest, BhavcopyResponse, ChartPeriod, CorporateAnnouncementRow,
+    CorporateAnnouncementsRequest, CorporateAnnouncementsResponse, CsvChunk,
+    DerivativesHistoryRequest, DerivativesHistoryResponse, DerivativesHistoryRow,
+    FiftyTwoWeekRequest, FiftyTwoWeekResponse, FiftyTwoWeekRow, HolidayListRequest,
+    HolidayListResponse, HolidayRow, IndexChart, IndexChartPeriod, IndexChartPoint,
+    IndexChartRequest, IndexHistoryRequest, IndexHistoryResponse, IndexHistoryRow,
+    IndexSnapshotRequest, IndexSnapshotResponse, IndexSnapshotRow, Instrument, LargeDealRow,
+    LargeDealsRequest, LargeDealsResponse, MarketMoverRow, MarketMoversRequest,
+    MarketMoversResponse, MarketSegmentStatus, MarketStatusRequest, MarketStatusResponse,
+    MostActiveEquitiesRequest, MostActiveEquitiesResponse, MostActiveEquityRow, OptionChainKind,
     OptionChainRequest, OptionChainResponse, OptionChainRow, OptionExpiriesRequest,
-    OptionExpiriesResponse, OptionLeg, OrderBook, OrderBookLevel, StockHistoryRequest,
-    StockHistoryResponse, StockHistoryRow, StockQuote, StockQuoteRequest, WatchStockQuoteRequest,
+    OptionExpiriesResponse, OptionLeg, OptionType, OrderBook, OrderBookLevel, StockChart,
+    StockChartPoint, StockChartRequest, StockHistoryRequest, StockHistoryResponse, StockHistoryRow,
+    StockQuote, StockQuoteRequest, WatchStockQuoteRequest,
 };
 
 const DEFAULT_WATCH_INTERVAL_SECS: u64 = 3;
 
+// Well under gRPC's default 4 MiB message cap, so any client can receive a
+// bhavcopy stream without raising its limits.
+const CSV_CHUNK_BYTES: usize = 1 << 20;
+
 #[derive(Debug)]
 pub struct JugaadService {
+    archives: NseArchives,
     quote: NseQuote,
     history: NseHistory,
     index_history: NseIndexHistory,
@@ -42,6 +61,7 @@ pub struct JugaadService {
 impl JugaadService {
     pub fn new() -> jugaad_core::Result<Self> {
         Ok(Self {
+            archives: NseArchives::new()?,
             quote: NseQuote::new()?,
             history: NseHistory::new()?,
             index_history: NseIndexHistory::new()?,
@@ -245,6 +265,220 @@ fn corporate_announcement_row_to_proto(
     }
 }
 
+fn date_string(d: NaiveDate) -> String {
+    d.format("%Y-%m-%d").to_string()
+}
+
+// NSE's chart timestamps are naive IST wall-clock times, so no "Z" suffix.
+fn datetime_string(dt: NaiveDateTime) -> String {
+    dt.format("%Y-%m-%dT%H:%M:%S").to_string()
+}
+
+fn derivative_history_row_to_proto(r: CoreDerivativeHistoryRow) -> DerivativesHistoryRow {
+    DerivativesHistoryRow {
+        instrument: r.instrument,
+        symbol: r.symbol,
+        expiry: date_string(r.expiry),
+        strike_price: r.strike_price,
+        option_type: r.option_type,
+        date: date_string(r.date),
+        open: r.open,
+        high: r.high,
+        low: r.low,
+        close: r.close,
+        last_traded_price: r.ltp,
+        previous_close: r.prev_close,
+        settle_price: r.settle_price,
+        volume: r.volume,
+        value: r.value,
+        open_interest: r.open_interest,
+        change_in_open_interest: r.change_in_oi,
+        market_lot: r.market_lot,
+        underlying_value: r.underlying_value,
+    }
+}
+
+/// Futures carry no strike or option side and options must carry both, so a
+/// request that mixes them up is rejected here instead of silently ignored.
+fn instrument_from_request(req: &DerivativesHistoryRequest) -> Result<CoreInstrument, Status> {
+    let option_type = OptionType::try_from(req.option_type).unwrap_or(OptionType::Unspecified);
+    let option = || -> Result<(f64, CoreOptionType), Status> {
+        let strike_price = req.strike_price.ok_or_else(|| {
+            Status::invalid_argument("strike_price: required for an option instrument")
+        })?;
+        let option_type = match option_type {
+            OptionType::Call => CoreOptionType::Call,
+            OptionType::Put => CoreOptionType::Put,
+            OptionType::Unspecified => {
+                return Err(Status::invalid_argument(
+                    "option_type: required for an option instrument (CALL or PUT)",
+                ));
+            }
+        };
+        Ok((strike_price, option_type))
+    };
+    let no_option = || -> Result<(), Status> {
+        if req.strike_price.is_some() || option_type != OptionType::Unspecified {
+            return Err(Status::invalid_argument(
+                "strike_price and option_type only apply to option instruments",
+            ));
+        }
+        Ok(())
+    };
+    match Instrument::try_from(req.instrument).unwrap_or(Instrument::Unspecified) {
+        Instrument::Unspecified => Err(Status::invalid_argument(
+            "instrument: required (FUT_IDX, FUT_STK, OPT_IDX or OPT_STK)",
+        )),
+        Instrument::FutIdx => no_option().map(|()| CoreInstrument::FutIdx),
+        Instrument::FutStk => no_option().map(|()| CoreInstrument::FutStk),
+        Instrument::OptIdx => option().map(|(strike_price, option_type)| CoreInstrument::OptIdx {
+            strike_price,
+            option_type,
+        }),
+        Instrument::OptStk => option().map(|(strike_price, option_type)| CoreInstrument::OptStk {
+            strike_price,
+            option_type,
+        }),
+    }
+}
+
+fn chart_period_from_proto(value: i32) -> CoreChartPeriod {
+    match ChartPeriod::try_from(value).unwrap_or(ChartPeriod::Unspecified) {
+        ChartPeriod::Unspecified | ChartPeriod::OneDay => CoreChartPeriod::OneDay,
+        ChartPeriod::OneWeek => CoreChartPeriod::OneWeek,
+        ChartPeriod::OneMonth => CoreChartPeriod::OneMonth,
+        ChartPeriod::OneYear => CoreChartPeriod::OneYear,
+        ChartPeriod::FiveYears => CoreChartPeriod::FiveYears,
+    }
+}
+
+fn index_chart_period_from_proto(value: i32) -> CoreIndexChartPeriod {
+    match IndexChartPeriod::try_from(value).unwrap_or(IndexChartPeriod::Unspecified) {
+        IndexChartPeriod::Unspecified | IndexChartPeriod::OneDay => CoreIndexChartPeriod::OneDay,
+        IndexChartPeriod::OneWeek => CoreIndexChartPeriod::OneWeek,
+        IndexChartPeriod::OneMonth => CoreIndexChartPeriod::OneMonth,
+        IndexChartPeriod::ThreeMonths => CoreIndexChartPeriod::ThreeMonths,
+        IndexChartPeriod::SixMonths => CoreIndexChartPeriod::SixMonths,
+        IndexChartPeriod::OneYear => CoreIndexChartPeriod::OneYear,
+        IndexChartPeriod::FiveYears => CoreIndexChartPeriod::FiveYears,
+    }
+}
+
+// NSE sends stock charts oldest-first for 1D but newest-first for every longer
+// window, and index charts oldest-first, so the points are sorted here rather
+// than trusted: every chart this service returns is newest first.
+fn stock_chart_to_proto(c: CoreChartData) -> StockChart {
+    let mut points = c.points;
+    points.sort_by_key(|p| Reverse(p.timestamp));
+    StockChart {
+        identifier: c.identifier,
+        name: c.name,
+        close_price: c.close_price,
+        points: points
+            .into_iter()
+            .map(|p| StockChartPoint {
+                timestamp: datetime_string(p.timestamp),
+                price: p.price,
+                session: p.session,
+                change: p.change,
+                percent_change: p.percent_change,
+            })
+            .collect(),
+    }
+}
+
+fn index_chart_to_proto(c: CoreIndexChartData) -> IndexChart {
+    let mut points = c.points;
+    points.sort_by_key(|p| Reverse(p.timestamp));
+    IndexChart {
+        identifier: c.identifier,
+        name: c.name,
+        close_price: c.close_price,
+        points: points
+            .into_iter()
+            .map(|p| IndexChartPoint {
+                timestamp: datetime_string(p.timestamp),
+                price: p.price,
+                session: p.session,
+                change: p.change,
+                percent_change: p.percent_change,
+            })
+            .collect(),
+    }
+}
+
+fn market_mover_row_to_proto(r: CoreMarketMoverRow) -> MarketMoverRow {
+    MarketMoverRow {
+        scope: r.scope,
+        direction: r.direction,
+        symbol: r.symbol,
+        series: r.series,
+        open: r.open,
+        high: r.high,
+        low: r.low,
+        last_price: r.last_price,
+        previous_close: r.previous_close,
+        change: r.change,
+        percent_change: r.percent_change,
+        traded_quantity: r.traded_quantity,
+        turnover: r.turnover,
+        market_type: r.market_type,
+        ca_ex_date: r.ca_ex_date,
+        ca_purpose: r.ca_purpose,
+    }
+}
+
+fn most_active_equity_row_to_proto(r: CoreMostActiveEquityRow) -> MostActiveEquityRow {
+    MostActiveEquityRow {
+        ranking: r.ranking,
+        symbol: r.symbol,
+        identifier: r.identifier,
+        last_price: r.last_price,
+        percent_change: r.percent_change,
+        quantity_traded: r.quantity_traded,
+        total_traded_volume: r.total_traded_volume,
+        total_traded_value: r.total_traded_value,
+        previous_close: r.previous_close,
+        ex_date: r.ex_date,
+        purpose: r.purpose,
+        year_high: r.year_high,
+        year_low: r.year_low,
+        change: r.change,
+        open: r.open,
+        day_high: r.day_high,
+        day_low: r.day_low,
+        last_update_time: r.last_update_time,
+    }
+}
+
+fn fifty_two_week_row_to_proto(r: CoreFiftyTwoWeekRow) -> FiftyTwoWeekRow {
+    FiftyTwoWeekRow {
+        direction: r.direction,
+        symbol: r.symbol,
+        company_name: r.company_name,
+        series: r.series,
+        last_price: r.last_price,
+        change: r.change,
+        percent_change: r.percent_change,
+        new_52_week_value: r.new_52_week_value,
+        previous_52_week_value: r.previous_52_week_value,
+        previous_close: r.previous_close,
+        previous_52_week_date: r.previous_52_week_date.map(date_string),
+    }
+}
+
+fn holiday_row_to_proto(r: CoreHolidayRow) -> HolidayRow {
+    HolidayRow {
+        segment: r.segment,
+        date: date_string(r.date),
+        week_day: r.week_day,
+        description: r.description,
+        morning_session: r.morning_session,
+        evening_session: r.evening_session,
+        serial_number: r.serial_number,
+    }
+}
+
 #[tonic::async_trait]
 impl Jugaad for JugaadService {
     async fn get_stock_quote(
@@ -435,5 +669,226 @@ impl Jugaad for JugaadService {
                 .map(corporate_announcement_row_to_proto)
                 .collect(),
         }))
+    }
+
+    async fn get_bhavcopy(
+        &self,
+        request: Request<BhavcopyRequest>,
+    ) -> Result<Response<BhavcopyResponse>, Status> {
+        let date = parse_date(&request.into_inner().date, "date")?;
+        let csv = self.archives.bhavcopy_raw(date).await.map_err(to_status)?;
+        Ok(Response::new(BhavcopyResponse { csv }))
+    }
+
+    type GetFoBhavcopyStream = ReceiverStream<Result<CsvChunk, Status>>;
+
+    async fn get_fo_bhavcopy(
+        &self,
+        request: Request<BhavcopyRequest>,
+    ) -> Result<Response<Self::GetFoBhavcopyStream>, Status> {
+        let date = parse_date(&request.into_inner().date, "date")?;
+        // Fetched before the stream opens, so "no data for this date" arrives
+        // as an ordinary error status rather than a stream that dies midway.
+        let csv = self
+            .archives
+            .bhavcopy_fo_raw(date)
+            .await
+            .map_err(to_status)?;
+        let (tx, rx) = mpsc::channel(4);
+        tokio::spawn(async move {
+            for piece in csv.as_bytes().chunks(CSV_CHUNK_BYTES) {
+                let chunk = CsvChunk {
+                    data: piece.to_vec(),
+                };
+                if tx.send(Ok(chunk)).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn get_derivatives_history(
+        &self,
+        request: Request<DerivativesHistoryRequest>,
+    ) -> Result<Response<DerivativesHistoryResponse>, Status> {
+        let req = request.into_inner();
+        let from_date = parse_date(&req.from_date, "from_date")?;
+        let to_date = parse_date(&req.to_date, "to_date")?;
+        let expiry = parse_date(&req.expiry, "expiry")?;
+        let instrument = instrument_from_request(&req)?;
+        let rows = self
+            .history
+            .derivatives_history_raw(&req.symbol, from_date, to_date, expiry, instrument)
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(DerivativesHistoryResponse {
+            rows: rows
+                .into_iter()
+                .map(derivative_history_row_to_proto)
+                .collect(),
+        }))
+    }
+
+    async fn get_stock_chart(
+        &self,
+        request: Request<StockChartRequest>,
+    ) -> Result<Response<StockChart>, Status> {
+        let req = request.into_inner();
+        let chart = self
+            .quote
+            .stock_chart_data_raw(&req.symbol, chart_period_from_proto(req.period))
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(stock_chart_to_proto(chart)))
+    }
+
+    async fn get_index_chart(
+        &self,
+        request: Request<IndexChartRequest>,
+    ) -> Result<Response<IndexChart>, Status> {
+        let req = request.into_inner();
+        let chart = self
+            .quote
+            .index_chart_data_raw(&req.name, index_chart_period_from_proto(req.period))
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(index_chart_to_proto(chart)))
+    }
+
+    async fn get_market_movers(
+        &self,
+        _request: Request<MarketMoversRequest>,
+    ) -> Result<Response<MarketMoversResponse>, Status> {
+        let rows = self
+            .live_market
+            .market_movers_raw()
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(MarketMoversResponse {
+            rows: rows.into_iter().map(market_mover_row_to_proto).collect(),
+        }))
+    }
+
+    async fn get_most_active_equities(
+        &self,
+        _request: Request<MostActiveEquitiesRequest>,
+    ) -> Result<Response<MostActiveEquitiesResponse>, Status> {
+        let rows = self
+            .live_market
+            .most_active_equities_raw()
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(MostActiveEquitiesResponse {
+            rows: rows
+                .into_iter()
+                .map(most_active_equity_row_to_proto)
+                .collect(),
+        }))
+    }
+
+    async fn get_fifty_two_week(
+        &self,
+        _request: Request<FiftyTwoWeekRequest>,
+    ) -> Result<Response<FiftyTwoWeekResponse>, Status> {
+        let rows = self
+            .live_market
+            .fifty_two_week_raw()
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(FiftyTwoWeekResponse {
+            rows: rows.into_iter().map(fifty_two_week_row_to_proto).collect(),
+        }))
+    }
+
+    async fn get_holiday_list(
+        &self,
+        _request: Request<HolidayListRequest>,
+    ) -> Result<Response<HolidayListResponse>, Status> {
+        let rows = self
+            .live_market
+            .holiday_list_raw()
+            .await
+            .map_err(to_status)?;
+        Ok(Response::new(HolidayListResponse {
+            rows: rows.into_iter().map(holiday_row_to_proto).collect(),
+        }))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use jugaad_core::nse::{ChartDataPoint, IndexChartDataPoint};
+
+    fn at(day: u32) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(2026, 10, day)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+    }
+
+    fn stock_chart(days: &[u32]) -> CoreChartData {
+        CoreChartData {
+            identifier: "SBINEQN".into(),
+            name: "SBIN".into(),
+            close_price: 1.0,
+            points: days
+                .iter()
+                .map(|&d| ChartDataPoint {
+                    timestamp: at(d),
+                    price: f64::from(d),
+                    session: "NM".into(),
+                    change: None,
+                    percent_change: None,
+                })
+                .collect(),
+        }
+    }
+
+    fn index_chart(days: &[u32]) -> CoreIndexChartData {
+        CoreIndexChartData {
+            identifier: "NIFTY 50".into(),
+            name: "NIFTY 50".into(),
+            close_price: 1.0,
+            points: days
+                .iter()
+                .map(|&d| IndexChartDataPoint {
+                    timestamp: at(d),
+                    price: f64::from(d),
+                    session: "NM".into(),
+                    change: 0.0,
+                    percent_change: 0.0,
+                })
+                .collect(),
+        }
+    }
+
+    fn prices(points: impl Iterator<Item = f64>) -> Vec<f64> {
+        points.collect()
+    }
+
+    #[test]
+    fn stock_charts_are_newest_first_whichever_way_nse_sent_them() {
+        for sent in [[1, 2, 3, 4], [4, 3, 2, 1]] {
+            let chart = stock_chart_to_proto(stock_chart(&sent));
+            assert_eq!(
+                prices(chart.points.iter().map(|p| p.price)),
+                [4.0, 3.0, 2.0, 1.0]
+            );
+            assert_eq!(chart.points[0].timestamp, "2026-10-04T00:00:00");
+        }
+    }
+
+    #[test]
+    fn index_charts_are_newest_first_whichever_way_nse_sent_them() {
+        for sent in [[1, 2, 3, 4], [4, 3, 2, 1]] {
+            let chart = index_chart_to_proto(index_chart(&sent));
+            assert_eq!(
+                prices(chart.points.iter().map(|p| p.price)),
+                [4.0, 3.0, 2.0, 1.0]
+            );
+        }
     }
 }
